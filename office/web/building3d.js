@@ -199,9 +199,10 @@ export function create3D(container, meta, { onFloor, onExit } = {}) {
   box(roof, X0 - 0.2, ry, Z1 - 0.15, W + LW + 0.2, 0.5, 0.15, '#d5dbe3'); box(roof, X0 - 0.2, ry, Z0 - 0.2, 0.15, 0.5, D + 0.2, '#d5dbe3');
   box(roof, X1 + 0.2, ry, Z0, LW - 0.4, 1.8, 2.6, '#dde2e9');                                  // 기계실(엘리베이터 상부)
   for (let i = 0; i < 6; i++) box(roof, X1 + 0.35, ry + 0.4 + i * 0.22, Z0 + 2.61, LW - 0.7, 0.06, 0.02, '#a3adb9', { cast: false });
-  // 간판: 4층 앞면 위쪽 가운데(사무실+로비 전체 폭의 중앙)에 붙입니다. 층에 들어가면 지붕과 함께 숨깁니다.
-  const SIGN = { cx: (X0 + X1 + LW) / 2, w: 7.2, h: 1.1, y: ry - T - 1.25, z: Z1 + 0.02 };
+  // 옥상 간판: 4층 위 옥상, 앞쪽 가장자리의 가운데(사무실+로비 전체 폭의 중앙)에 세웁니다.
+  const SIGN = { cx: (X0 + X1 + LW) / 2, w: 8, h: 1.25, y: ry + 0.6, z: Z1 - 0.75 };
   box(roof, SIGN.cx - SIGN.w / 2 - 0.1, SIGN.y - 0.1, SIGN.z, SIGN.w + 0.2, SIGN.h + 0.2, 0.25, '#1f2937');
+  for (const dx of [-SIGN.w / 3, 0, SIGN.w / 3]) box(roof, SIGN.cx + dx - 0.06, ry, SIGN.z + 0.05, 0.12, 0.6, 0.12, '#475569'); // 받침 기둥
   const sign = canvasTex(1024, 160, (g2, c) => {
     g2.fillStyle = '#1f2937'; g2.fillRect(0, 0, c.width, c.height);
     g2.font = 'bold 110px "Arial Black", sans-serif'; g2.textAlign = 'center'; g2.textBaseline = 'middle';
