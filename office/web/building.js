@@ -34,7 +34,8 @@ const wallX = (y0, y1, z0, z1, fill, extra = '') => poly(fill, [[0.03, y0, z0], 
 const item = (depth, svg) => ({ depth, svg });
 function desk(x, y, z, monitors = 1) {
   let s = box(x, y, z, 1.7, 0.85, 0.72, '#e3cfae'); // 원목 책상
-  for (let i = 0; i < monitors; i++) s += box(x + 0.25 + i * 0.65, y + 0.12, z + 0.72, 0.58, 0.07, 0.45, '#273142');
+  const mw = monitors > 1 ? 0.34 : 0.55; // 모니터는 오른쪽에 두어 직원 얼굴을 가리지 않게 합니다.
+  for (let i = 0; i < monitors; i++) s += box(x + 1.0 + i * (mw + 0.04), y + 0.12, z + 0.72, mw, 0.07, 0.45, '#273142');
   return item(x + y + 1.7, s);
 }
 function chair(x, y, z) { return item(x + y - 0.2, box(x, y, z, 0.5, 0.5, 0.42, '#5b6b80') + box(x, y, z + 0.42, 0.5, 0.1, 0.55, '#5b6b80')); }
@@ -59,18 +60,70 @@ function rack(x, y, z) {
   return item(x + y + 1.6, s);
 }
 
-/** 사람 캐릭터 */
+// ---------- 픽셀아트 고양이 ----------
+// O 외곽선, F 털, S 줄무늬, L 밝은 털, E 눈, W 눈 하이라이트, P 분홍(귀·코), C 목걸이(역할 색)
+const CAT = [
+  '..O........O...',
+  '.OFO......OFO..',
+  '.OPFO....OFPO..',
+  '.OFFFOOOOFFFO..',
+  'OFFFFFSFSFFFFO.',
+  'OFFEWFFFFEWFFO.',
+  'OFFEEFFFFEEFFO.',
+  'OFLFFFPPFFFLFO.',
+  '.OFLLFFFFLLFO..',
+  '..OCCCCCCCCO...',
+  '.OFFFLLLLFFFO.O',
+  '.OFFLLLLLLFFOFO',
+  '.OFFLLLLLLFFOFO',
+  '.OFLLFFFFLLFFO.',
+  '.OOOOOOOOOOOO..',
+];
+// 역할별 털 색 [털, 줄무늬, 밝은 털, 눈]
+const FUR = {
+  ceo: ['#f59e0b', '#c2410c', '#fde7c2', '#1f2937'],       // 치즈 태비(대표)
+  analyst: ['#9ca3af', '#6b7280', '#e5e7eb', '#1f2937'],   // 회색 태비
+  pm: ['#f2d3a0', '#d4a65f', '#fff7e8', '#1f2937'],        // 크림
+  ux: ['#f8fafc', '#cbd5e1', '#ffffff', '#2563eb'],        // 흰 고양이(파란 눈)
+  architect: ['#334155', '#1e293b', '#64748b', '#facc15'], // 검은 고양이(노란 눈)
+  po: ['#fb923c', '#292524', '#fff7ed', '#1f2937'],        // 삼색이
+  sm: ['#a16207', '#713f12', '#fde68a', '#1f2937'],        // 갈색 태비
+  qa: ['#cbd5e1', '#94a3b8', '#f1f5f9', '#0f766e'],        // 은색
+  reviewer: ['#1f2937', '#111827', '#f8fafc', '#84cc16'],  // 턱시도
+  dev: ['#f97316', '#9a3412', '#ffedd5', '#1f2937'],       // 주황 태비
+};
+const PX = 2.6;
+const spriteCache = {};
+function catSprite(key, collar) {
+  const id = `${key}:${collar}`;
+  if (spriteCache[id]) return spriteCache[id];
+  const [fur, stripe, light, eye] = FUR[key] ?? FUR.dev;
+  const col = { O: '#1c1917', F: fur, S: stripe, L: light, E: eye, W: '#ffffff', P: '#f9a8d4', C: collar };
+  const w = CAT[0].length, h = CAT.length;
+  let out = '';
+  CAT.forEach((row, y) => {
+    // 같은 색이 이어지는 칸은 하나의 사각형으로 합칩니다.
+    let x = 0;
+    while (x < row.length) {
+      const ch = row[x];
+      let n = 1; while (x + n < row.length && row[x + n] === ch) n++;
+      if (ch !== '.') out += `<rect x="${(x * PX).toFixed(1)}" y="${(y * PX).toFixed(1)}" width="${(n * PX + 0.05).toFixed(2)}" height="${(PX + 0.05).toFixed(2)}" fill="${col[ch]}"/>`;
+      x += n;
+    }
+  });
+  return (spriteCache[id] = `<g class="cat" shape-rendering="crispEdges" transform="translate(${(-w * PX / 2).toFixed(1)},${(-h * PX).toFixed(1)})">${out}</g>`);
+}
+
+/** 직원 캐릭터(픽셀 고양이) */
 function person(x, y, z, role, opts = {}) {
   const [cx, cy] = P(x, y, z);
   const cls = `person ${opts.active ? 'active' : ''} ${opts.dim ? 'dim' : ''}`;
   const tag = role.short ?? role.name.slice(0, 2);
   const tw = 12 + tag.length * 9;
   return item(x + y + 0.05, `<g class="${cls}" transform="translate(${cx.toFixed(1)},${cy.toFixed(1)})"><title>${esc(role.name)}</title>
-    <ellipse class="shadow" cx="0" cy="0" rx="11" ry="4"/>
-    <g class="fig"><circle class="halo" cx="0" cy="-22" r="16" stroke="${role.color}"/>
-    <rect x="-8" y="-30" width="16" height="22" rx="7" fill="${role.color}"/>
-    <circle cx="0" cy="-36" r="7.5" fill="#f2cfae"/><path d="M-7.5,-37 a7.5,7.5 0 0 1 15,0 q-7,-4 -15,0z" fill="#3b2f2a"/></g>
-    <g class="tag" transform="translate(0,-62)"><rect x="${-tw / 2}" y="0" width="${tw}" height="14" rx="7"/><text x="0" y="10.5">${esc(tag)}</text></g></g>`);
+    <ellipse class="shadow" cx="0" cy="0" rx="13" ry="4"/>
+    <g class="fig"><circle class="halo" cx="0" cy="-20" r="18" stroke="${role.color}"/>${catSprite(opts.key, role.color)}</g>
+    <g class="tag" transform="translate(0,-56)"><rect x="${-tw / 2}" y="0" width="${tw}" height="14" rx="7"/><text x="0" y="10.5">${esc(tag)}</text></g></g>`);
 }
 
 // ---------- 층별 배치 ----------
@@ -198,10 +251,10 @@ export function renderDynamic(svg, meta, state, selectedFloor) {
       let x = f.floor === 1 ? 11.15 : seatX(i, f.roles.length) + 0.85;
       if (f.floor === 4) x = 1.2 + 0.85; // 개발자는 첫 번째 자리
       const active = r === 'ceo' ? ceoTurn : act.role === r;
-      its.push(person(x, ROWY - 0.35, z + 0.25, role, { active, dim: !active && act.role && act.floor === f.floor }));
+      its.push(person(x - 0.15, ROWY - 0.35, z + 0.4, role, { key: r, active, dim: !active && act.role && act.floor === f.floor }));
       if (active) {
         const label = r === 'ceo' ? '대표 차례입니다' : act.label ?? '';
-        const [bx, by] = P(x, ROWY - 0.35, z + 0.25);
+        const [bx, by] = P(x - 0.15, ROWY - 0.35, z + 0.4);
         const w = Math.min(240, 24 + label.length * 11.5);
         bubbles += (`<g class="bubble" transform="translate(${(bx - w / 2).toFixed(1)},${(by - 104).toFixed(1)})"><rect width="${w}" height="28" rx="14" filter="url(#soft)"/><path d="M${w / 2 - 6},27 l6,8 l6,-8z"/><text x="${w / 2}" y="18.5">${esc(label)}</text></g>`);
       }
