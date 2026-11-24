@@ -1,104 +1,16 @@
 // MWA 사무실 화면 — 의존성 없는 바닐라 JS
+import { buildStatic, renderDynamic, FLOOR_COLORS } from './building.js';
 const $ = (s) => document.querySelector(s);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const api = (p, body) => fetch(p, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {}).then((r) => r.json());
 
 let META = null, SNAP = null, LOGS = [];
 let floor = 2, tab = 'detail';
-const FLOOR_COLORS = { 1: '#f59e0b', 2: '#14b8a6', 3: '#6366f1', 4: '#3b82f6' };
 const PHASE = { idle: '시작 전', planning: '기획 중', ready: '빌드 승인 대기', building: '빌드 중', paused: '일시정지', done: '완료', error: '오류' };
 const ST = { todo: '대기', running: '진행 중', done: '완료', failed: '실패', dev: '개발', test: '테스트', review: '리뷰', skipped: '건너뜀', active: '진행', waiting: '대기' };
 
-// ---------------- 건물(아이소메트릭 SVG) ----------------
-const S = 26, TILT = 0.42, W = 12, D = 6, H = 5;
-const P = (x, y, z) => [(x - y) * 0.866 * S, (x + y) * TILT * S - z * S];
-const pts = (...a) => a.map((p) => P(...p).map((n) => n.toFixed(1)).join(',')).join(' ');
-const poly = (cls, ...a) => `<polygon class="${cls}" points="${pts(...a)}"/>`;
-function box(x0, y0, z0, w, d, h, top = 'desk-top', side = 'desk') {
-  const x1 = x0 + w, y1 = y0 + d, z1 = z0 + h;
-  return poly(side, [x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]) +
-    poly(side, [x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]) +
-    poly(top, [x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]);
-}
-const seat = (role, i, n) => ({ x: 1.6 + (i + 0.5) * ((W - 2.4) / n), y: D - 1.5 });
-
-function buildStatic() {
-  const svg = $('#building');
-  let html = '';
-  for (const f of META.floors) {
-    const z = (f.floor - 1) * H;
-    html += `<g class="floor-g" data-floor="${f.floor}">`;
-    html += poly('wall', [0, 0, z], [0, D, z], [0, D, z + H], [0, 0, z + H]);
-    html += poly('wall2', [0, 0, z], [W, 0, z], [W, 0, z + H], [0, 0, z + H]);
-    html += poly('slab', [0, 0, z], [W, 0, z], [W, D, z], [0, D, z]);
-    html += poly('slab-edge', [W, 0, z], [W, D, z], [W, D, z - 0.25], [W, 0, z - 0.25]);
-    html += poly('slab-edge', [0, D, z], [W, D, z], [W, D, z - 0.25], [0, D, z - 0.25]);
-    html += `<polygon points="${pts([0, D, z], [W, D, z], [W, D, z - 0.25], [0, D, z - 0.25])}" fill="${FLOOR_COLORS[f.floor]}" opacity=".55"/>`;
-    // 층별 소품
-    const roles = f.roles;
-    roles.forEach((r, i) => { const s = seat(r, i, roles.length); html += box(s.x - 0.7, s.y - 1.5, z, 1.4, 0.8, 0.9); });
-    if (f.floor === 1) html += box(1, 1, z, 3, 1, 1.1) + box(W - 3, 0.6, z, 2, 0.6, 2.2); // 접수대, 책장
-    if (f.floor === 4) roles.forEach((r, i) => { const s = seat(r, i, roles.length); html += box(s.x - 0.4, s.y - 1.45, z + 0.9, 0.8, 0.1, 0.6, 'glass', 'desk'); });
-    html += `<g id="dyn-${f.floor}"></g>`;
-    // 층 라벨
-    const [lx, ly] = P(0, D, z + H * 0.3);
-    html += `<g class="flabel" transform="translate(${lx - 250},${ly - 22})"><rect width="190" height="44" rx="10"/><circle cx="20" cy="22" r="11" fill="${FLOOR_COLORS[f.floor]}"/><text x="20" y="22" fill="#fff" font-size="9" font-weight="700" text-anchor="middle" dominant-baseline="central">${f.floor}F</text><text class="t" x="38" y="18">${esc(f.name)}</text><text class="d" x="38" y="33">${esc(f.desc)}</text></g>`;
-    html += `</g>`;
-  }
-  // 엘리베이터 샤프트
-  const top = META.floors.length * H + 0.4;
-  html += `<g>${poly('glass', [W + 0.3, 0, 0], [W + 0.3, 2.2, 0], [W + 0.3, 2.2, top], [W + 0.3, 0, top])}`;
-  html += `<g id="car" class="car">${box(W + 0.5, 0.4, 0.05, 1.6, 1.4, 2.6, 'car', 'car')}</g>`;
-  html += `${poly('glass', [W + 0.3, 2.2, 0], [W + 2.5, 2.2, 0], [W + 2.5, 2.2, top], [W + 0.3, 2.2, top])}</g>`;
-  svg.innerHTML = html;
-  const [a] = P(0, D, 0), [b] = P(W + 2.5, 0, 0), [, t] = P(0, 0, top), [, bt] = P(W, D, 0);
-  svg.setAttribute('viewBox', `${a - 270} ${t - 60} ${b - a + 300} ${bt - t + 90}`);
-  svg.querySelectorAll('.floor-g').forEach((g) => g.addEventListener('click', () => selectFloor(Number(g.dataset.floor))));
-}
-
-let dynKey = '';
-function renderBuilding() {
-  const s = SNAP.state, act = s.activity ?? {};
-  const key = JSON.stringify([act, s.stages.map((x) => x.status), s.epics.map((e) => e.tickets.map((t) => t.status)), s.approvals.length]);
-  if (key === dynKey) return; dynKey = key;
-  for (const f of META.floors) {
-    const z = (f.floor - 1) * H;
-    let html = '';
-    if (f.floor === 2) { // 화이트보드: 기획 단계 진행
-      s.stages.forEach((st, i) => {
-        const c = st.status === 'done' ? '#22c55e' : st.status === 'running' ? '#14b8a6' : st.status === 'failed' ? '#ef4444' : '#cbd5e1';
-        const y = 0.5 + i * 0.72;
-        html += `<polygon points="${pts([0.02, y, z + 2.2], [0.02, y + 0.58, z + 2.2], [0.02, y + 0.58, z + 3.0], [0.02, y, z + 3.0])}" fill="${c}"/>`;
-      });
-    }
-    if (f.floor === 3) { // 칸반 보드: 상태별 티켓 수
-      const all = s.epics.flatMap((e) => e.tickets);
-      const cols = [['todo', '#cbd5e1'], ['dev', '#3b82f6'], ['test', '#a855f7'], ['review', '#ef4444'], ['done', '#22c55e']];
-      cols.forEach(([k, c], i) => {
-        const n = all.filter((t) => t.status === k).length;
-        for (let j = 0; j < Math.min(n, 6); j++) {
-          const y = 0.5 + i * 1.05, zz = z + 3.4 - j * 0.4;
-          html += `<polygon points="${pts([0.02, y, zz], [0.02, y + 0.85, zz], [0.02, y + 0.85, zz - 0.3], [0.02, y, zz - 0.3])}" fill="${c}"/>`;
-        }
-      });
-    }
-    f.roles.forEach((r, i) => {
-      const s2 = seat(r, i, f.roles.length), role = META.roles[r];
-      const active = act.role === r || (r === 'ceo' && (s.approvals.length || s.questions.some((q) => q.status === 'open')));
-      const [cx, cy] = P(s2.x, s2.y, z + 1.2);
-      html += `<g class="agent ${active ? 'active' : ''}" transform="translate(${cx},${cy})"><title>${esc(role.name)}</title>
-        <circle class="halo" r="13" stroke="${role.color}"/><circle class="body" r="12" fill="${role.color}"/><text>${esc(role.short ?? role.name.slice(0, 2))}</text></g>`;
-      if (active) {
-        const label = r === 'ceo' ? '대표 차례입니다' : act.label;
-        const w = Math.min(220, 18 + label.length * 11);
-        html += `<g class="bubble" transform="translate(${cx - w / 2},${cy - 52})"><rect width="${w}" height="26" rx="13"/><text x="${w / 2}" y="17" text-anchor="middle">${esc(label)}</text></g>`;
-      }
-    });
-    $(`#dyn-${f.floor}`).innerHTML = html;
-  }
-  const [, y1] = P(0, 0, 0), [, yf] = P(0, 0, ((act.floor ?? 1) - 1) * H);
-  $('#car').style.transform = `translateY(${yf - y1}px)`;
-}
+// ---------------- 건물 ----------------
+function renderBuilding() { renderDynamic($('#building'), META, SNAP.state, floor); }
 
 // ---------------- 패널 ----------------
 function selectFloor(f) { floor = f; renderAll(); }
@@ -272,7 +184,8 @@ $('#msg').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlK
 (async () => {
   META = await api('/api/meta');
   LOGS = await api('/api/logs');
-  buildStatic();
+  buildStatic($('#building'), META, selectFloor);
+  $('#building').addEventListener('floor', (e) => selectFloor(e.detail));
   const es = new EventSource('/api/events');
   es.addEventListener('state', (e) => { SNAP = JSON.parse(e.data); renderAll(); });
   es.addEventListener('log', (e) => { LOGS.push(JSON.parse(e.data)); if (LOGS.length > 600) LOGS.shift(); if (tab === 'detail') renderFeed(); if (tab === 'log') renderLog(); });
