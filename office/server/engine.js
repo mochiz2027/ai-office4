@@ -26,6 +26,7 @@ const TOOLSETS = {
   plan: ['Read', 'Write', 'Edit', 'Glob', 'Grep'],
   review: ['Read', 'Glob', 'Grep', 'Bash(git diff:*)', 'Bash(git status:*)', 'Bash(git log:*)'],
   dev: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash'],
+  chat: ['Read', 'Glob', 'Grep'], // 대화 답변: 읽기만
 };
 
 /**
@@ -108,6 +109,12 @@ async function runMock({ cwd, onLog, signal, mock = {} }) {
     fs.writeFileSync(p, body);
     onLog(`🔧 Write ${rel}`);
   };
+  if (mock.chat) { // 대화 답변 (mock)
+    await sleep(delay, signal);
+    const text = `(mock) ${mock.who}입니다. 말씀하신 "${String(mock.chat).slice(0, 60)}" 내용을 확인했습니다.\n\n**처리 방식:** ${mock.route}\n\n추가로 정하실 것이 있으면 이어서 말씀해 주세요.`;
+    onLog('(mock) 답변 완료');
+    return { text, cost: 0, contract: {} };
+  }
   const contract = { summary: `(mock) ${mock.title} 을(를) 완료했습니다.`, questions: [], assumptions: [] };
 
   if (mock.stage) {

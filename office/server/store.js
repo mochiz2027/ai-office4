@@ -17,7 +17,8 @@ export function freshState() {
     testCommand: '',
     questions: [],
     assumptions: [],
-    messages: [],
+    messages: [], // { floor, from: 'ceo' | 역할, text, ts }
+    chatPending: {}, // 층 → 답변 작성 중인 역할
     changeRequests: [],
     activity: { floor: 1, role: null, label: '대기 중', ticket: null },
     approvals: [], // 수동 모드 단계 승인 대기 { id, kind, ref, text }

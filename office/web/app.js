@@ -189,16 +189,48 @@ function renderFloorInfo() {
         : '변경 요청을 쓰면 새 티켓으로 만들어 작업합니다. (진행 중인 티켓이 끝난 뒤 반영)';
 }
 
+/** 직원 답변용 간단한 마크다운(굵게·코드·목록·문단) */
+function md(text) {
+  const inline = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '<code>$1</code>');
+  const out = []; let list = null;
+  const close = () => { if (list) { out.push(`</${list}>`); list = null; } };
+  for (const raw of String(text ?? '').split('\n')) {
+    const line = raw.trimEnd();
+    let m;
+    if ((m = line.match(/^\s*[-*•]\s+(.*)/))) { if (list !== 'ul') { close(); out.push('<ul>'); list = 'ul'; } out.push(`<li>${inline(m[1])}</li>`); }
+    else if ((m = line.match(/^\s*\d+[.)]\s+(.*)/))) { if (list !== 'ol') { close(); out.push('<ol>'); list = 'ol'; } out.push(`<li>${inline(m[1])}</li>`); }
+    else if ((m = line.match(/^#{1,4}\s+(.*)/))) { close(); out.push(`<p><b>${inline(m[1])}</b></p>`); }
+    else if (!line.trim()) close();
+    else { close(); out.push(`<p>${inline(line)}</p>`); }
+  }
+  close();
+  return out.join('');
+}
+
 function renderFeed() {
   const s = SNAP.state;
+  const conv = s.messages.filter((m) => m.floor === floor);
   const items = [
-    ...s.messages.filter((m) => m.floor === floor).map((m) => ({ ts: m.ts, html: `<div class="msg ceo"><span class="who">대표(당신)</span>${esc(m.text)}</div>` })),
-    ...LOGS.filter((l) => l.floor === floor && l.role !== 'ceo').slice(-60).map((l) => ({ ts: l.ts, html: `<div class="msg ${l.level ?? ''}"><span class="who">${esc(META.roles[l.role]?.name ?? '사무실')}</span>${esc(l.text)}</div>` })),
-  ].sort((a, b) => a.ts.localeCompare(b.ts)).slice(-60);
+    ...conv.map((m) => {
+      const ceo = !m.from || m.from === 'ceo';
+      const who = ceo ? '대표(당신)' : META.roles[m.from]?.name ?? m.from;
+      return { ts: m.ts, html: ceo ? `<div class="msg ceo"><span class="who">${who}</span>${esc(m.text)}</div>`
+        : `<div class="msg staff" style="--c:${META.roles[m.from]?.color ?? '#888'}"><span class="who">${esc(who)}</span><div class="md">${md(m.text)}</div></div>` };
+    }),
+    // 작업 소식(에이전트 도구 로그 제외): 접수·완료 같은 짧은 알림만 대화 사이에 보여 줍니다.
+    ...LOGS.filter((l) => l.floor === floor && l.role !== 'ceo' && !l.agent).slice(-30).map((l) => ({ ts: l.ts, html: `<div class="note ${l.level ?? ''}">${esc(l.text)}</div>` })),
+  ].sort((a, b) => a.ts.localeCompare(b.ts)).slice(-80);
+  const pending = s.chatPending?.[floor];
+  if (pending) items.push({ html: `<div class="msg staff typing" style="--c:${META.roles[pending]?.color ?? '#888'}"><span class="who">${esc(META.roles[pending]?.name ?? '')}</span><span class="dots"><i></i><i></i><i></i></span> 답변을 쓰고 있습니다</div>` });
+  $('#chatCount').textContent = conv.length ? `${conv.length}개` : '';
   const el = $('#feed');
-  const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-  el.innerHTML = items.map((i) => i.html).join('') || '<p class="muted">아직 대화가 없습니다.</p>';
-  if (atBottom) el.scrollTop = el.scrollHeight;
+  const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+  const html = items.map((i) => i.html).join('') || '<p class="muted">아직 대화가 없습니다. 아래 메시지 칸에 쓰고 보내기를 누르면 담당 직원이 답합니다.</p>';
+  if (el._html === html && el.dataset.floor === String(floor)) return; // 바뀐 게 없으면 다시 그리지 않아 스크롤이 튀지 않습니다
+  const floorChanged = el.dataset.floor !== String(floor);
+  el._html = html; el.dataset.floor = floor;
+  el.innerHTML = html;
+  if (atBottom || floorChanged || pending) el.scrollTop = el.scrollHeight;
 }
 
 function humanTurn(h) {

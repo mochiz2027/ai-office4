@@ -70,6 +70,20 @@ test('완료 후 2F 메시지도 새 티켓으로 만들어 다시 작업한다'
   assert.equal(new Set(ids).size, ids.length, '티켓 번호가 겹치지 않는다');
 });
 
+test('대화: 메시지를 보내면 담당 직원 답변이 대화 기록에 남는다', async () => {
+  process.env.MWA_MOCK_DELAY = '30';
+  const dir = tmp();
+  const store = new Store(dir);
+  const orch = new Orchestrator(store, { engine: 'mock' });
+  orch.postMessage(2, '간판 견적 웹앱');
+  assert.equal(store.state.chatPending[2], 'pm');
+  await until(() => store.state.messages.some((m) => m.floor === 2 && m.from === 'pm'));
+  assert.equal(store.state.chatPending[2], undefined);
+  const reply = store.state.messages.find((m) => m.from === 'pm');
+  assert.match(reply.text, /기획/);
+  orch.pause();
+});
+
 test('scaffold: 스타터 골격을 만들고 기존 파일은 덮어쓰지 않는다', async () => {
   const { scaffold } = await import('../server/scaffold.js');
   const dir = tmp();

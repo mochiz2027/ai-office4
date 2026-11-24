@@ -76,6 +76,7 @@ export function startServer({ projectDir, port = 4780, host = '127.0.0.1', engin
     // 서버가 다시 켜졌을 때 진행 중이던 단계를 이어서 합니다.
     store.update((s) => {
       for (const st of s.stages) if (st.status === 'running') st.status = 'todo';
+      s.chatPending = {};
       for (const e of s.epics) for (const t of e.tickets) if (['dev', 'test', 'review'].includes(t.status)) t.status = 'todo';
     });
     orch.recheckSetup();

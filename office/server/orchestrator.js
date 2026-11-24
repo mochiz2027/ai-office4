@@ -39,14 +39,17 @@ export class Orchestrator {
     if (!text) return;
     this.store.update((s) => s.messages.push({ floor, from: 'ceo', text, ts: new Date().toISOString() }));
     this.log(`대표 → ${floor}F: ${text}`, { floor, role: 'ceo' });
+    let route = '';
 
     const phase = this.s.phase;
     if (phase === 'idle') {
       // 시작 전: 어느 층에 쓰든 아이디어로 받아 2F 기획을 시작합니다.
       this.store.update((s) => { s.idea = text; s.phase = 'planning'; });
+      route = '시작 전이라 이 내용을 프로젝트 아이디어로 받아 2F 기획(아이디어 → 브리프 → PRD → UX → 설계 → 티켓)을 시작했습니다.';
       this.log('아이디어를 받아 2F 기획 세션을 시작했습니다.', { floor: 2 });
     } else if (phase === 'planning' || (phase === 'paused' && this.s.resumePhase === 'planning')) {
       // 기획 중: 다음 기획 단계 프롬프트에 그대로 들어갑니다(최근 메시지).
+      route = '기획 진행 중이라 이 내용을 기획 지시로 받아 다음 기획 단계부터 문서에 반영합니다.';
       this.log('기획 지시로 접수했습니다. 다음 기획 단계부터 반영합니다.', { floor: 2 });
     } else {
       // 기획이 끝난 뒤(빌드 승인 대기·빌드 중·완료·오류): 변경 요청 → 티켓으로 만들어 실제로 작업합니다.
@@ -55,9 +58,11 @@ export class Orchestrator {
         if (s.phase === 'done') s.phase = 'building'; // 완료된 프로젝트도 다시 일을 시작합니다.
       });
       const when = { ready: '빌드를 승인하면 가장 먼저', building: '진행 중인 티켓이 끝나는 대로', paused: '재개하면', done: '지금 바로', error: '오류를 다시 시도하면' }[phase] ?? '곧';
+      route = `기획이 끝난 상태라 변경 요청(${this.s.changeRequests.at(-1).id})으로 접수했고, ${when} 티켓으로 만들어 개발·테스트·리뷰를 진행합니다.`;
       this.log(`변경 요청으로 접수했습니다. ${when} 티켓으로 만들어 작업합니다.`, { floor });
     }
     this.kick();
+    this.#reply(floor, text, route);
   }
 
   setMode(mode) {
@@ -439,6 +444,55 @@ export class Orchestrator {
     this.log(`${epicId} 에픽 마무리 완료`, { floor: 3, role: 'sm' });
   }
 
+  // ---------- 대화: 대표 메시지에 담당 직원이 바로 답합니다 ----------
+  static CHAT_ROLE = { 1: 'pm', 2: 'pm', 3: 'sm', 4: 'dev' };
+  #chatChain = Promise.resolve();
+  #reply(floor, text, route) {
+    const role = Orchestrator.CHAT_ROLE[floor] ?? 'pm';
+    this.store.update((s) => { s.chatPending = { ...(s.chatPending ?? {}), [floor]: role }; });
+    this.#chatChain = this.#chatChain.then(() => this.#answerChat(floor, role, text, route)).catch(() => {});
+    return this.#chatChain;
+  }
+  async #answerChat(floor, role, text, route) {
+    const s = this.s, R = ROLES[role];
+    const conv = s.messages.filter((m) => m.floor === floor).slice(-13, -1)
+      .map((m) => `- ${m.from === 'ceo' ? '대표' : ROLES[m.from]?.name ?? m.from}: ${m.text.slice(0, 800)}`).join('\n');
+    const stages = s.stages.map((x) => `${stageById(x.id)?.title ?? x.id}=${x.status}`).join(', ');
+    const tickets = s.epics.flatMap((e) => e.tickets.map((t) => `${t.id} ${t.title} (${t.status})`)).slice(-15).join('\n');
+    const docs = s.stages.filter((x) => x.status === 'done').map((x) => `- ${x.doc}`).join('\n');
+    const prompt = [
+      `당신은 "MWA 바이브코딩 사무실" ${floor}F의 ${R.name}입니다. 지금 대표(사람)와 채팅으로 대화하고 있습니다.`,
+      '## 답변 규칙',
+      '- 한국어 존댓말로, 대표에게 직접 말하듯 답합니다. 핵심을 먼저 말하고 길이는 3~12줄 정도로 합니다.',
+      '- 필요하면 프로젝트 파일과 기획 문서를 읽어 근거를 확인합니다. 파일은 절대 수정하지 않습니다(작업은 사무실 진행기가 따로 합니다).',
+      '- 대표가 정해야 할 것이 있으면 번호 목록으로 선택지를 주고 추천안을 밝힙니다.',
+      '- 확실하지 않은 수치·사실은 추측하지 말고 [확인필요]로 표시합니다.',
+      '- JSON 블록은 쓰지 않습니다.',
+      `## 프로젝트 상황\n- 단계: ${s.phase}\n- 아이디어: ${s.idea || '(아직 없음)'}\n- 기획 단계: ${stages}`,
+      tickets && `## 최근 티켓\n${tickets}`,
+      docs && `## 작성된 기획 문서\n${docs}`,
+      conv && `## 이전 대화\n${conv}`,
+      `## 이 메시지의 처리 방식 (시스템)\n${route}`,
+      `## 대표의 새 메시지\n${text}`,
+    ].filter(Boolean).join('\n\n');
+    let answer;
+    try {
+      const r = await runAgent({
+        engine: this.engine, model: this.model || this.loop.models.chat || undefined, prompt, toolset: 'chat', cwd: this.cwd,
+        runFile: path.join(this.store.dir, 'runs', `${Date.now()}-chat-${role}.jsonl`),
+        mock: { chat: text, who: R.name, route }, onLog: () => {},
+      });
+      if (r.cost) this.store.update((x) => { x.costUsd = (x.costUsd ?? 0) + r.cost; });
+      answer = String(r.text ?? '').replace(/```json[\s\S]*?```\s*$/, '').trim() || route;
+    } catch (e) {
+      answer = `답변을 만들지 못했습니다(${e.message.slice(0, 120)}). 메시지는 접수되었습니다: ${route}`;
+    }
+    this.store.update((x) => {
+      x.messages.push({ floor, from: role, text: answer, ts: new Date().toISOString() });
+      const p = { ...(x.chatPending ?? {}) }; delete p[floor]; x.chatPending = p;
+    });
+  }
+
   // ---------- 공용 ----------
   #prompt(role, parts) {
     const s = this.s;
@@ -446,14 +500,14 @@ export class Orchestrator {
     const contract = fs.readFileSync(path.join(AGENTS_DIR, '_contract.md'), 'utf8');
     const decisions = s.questions.filter((q) => q.answer).map((q) => `- ${q.q} → **${q.answer}**${q.status === 'auto' ? ' (자동: 추천안)' : ''}`).join('\n');
     const rejected = s.assumptions.filter((a) => a.rejected).map((a) => `- (틀린 가정) ${a.text}`).join('\n');
-    const msgs = s.messages.slice(-10).map((m) => `- [${m.floor}F] ${m.text}`).join('\n');
+    const msgs = s.messages.slice(-12).map((m) => `- [${m.floor}F ${m.from === 'ceo' || !m.from ? '대표' : ROLES[m.from]?.name ?? m.from}] ${m.text.slice(0, 600)}`).join('\n');
     const docs = s.stages.filter((x) => x.status === 'done').map((x) => `- ${x.doc}`).join('\n');
     return [
       rolePrompt, contract,
       `## 프로젝트 아이디어 (대표 원문)\n${s.idea}`,
       decisions && `## 지금까지 확정된 결정\n${decisions}`,
       rejected && `## 대표가 틀렸다고 표시한 가정\n${rejected}`,
-      msgs && `## 대표의 최근 메시지\n${msgs}`,
+      msgs && `## 대표와의 최근 대화\n${msgs}`,
       docs && `## 이미 작성된 기획 문서 (먼저 읽으세요)\n${docs}`,
       ...parts,
     ].filter(Boolean).join('\n\n');
