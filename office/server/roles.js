@@ -28,13 +28,36 @@ export const PLANNING_STAGES = [
   { id: 'prd', role: 'pm', title: 'PRD 초안', doc: '_bmad-output/planning-artifacts/03-prd.md',
     task: 'PRD 를 작성합니다: 기능 요구사항(FR-번호), 비기능 요구사항(NFR-번호), MVP 범위, 완료 조건(Definition of Done), 제외 범위.' },
   { id: 'ux', role: 'ux', title: 'UX 문서(화면 설계)', doc: '_bmad-output/planning-artifacts/04-ux.md',
-    task: '화면 목록, 화면별 구성 요소, 사용자 흐름, 상태(빈/로딩/오류)를 텍스트 와이어프레임으로 작성합니다.' },
+    task: '화면 목록, 화면별 구성 요소, 사용자 흐름, 상태(빈/로딩/오류)를 텍스트 와이어프레임으로 작성합니다. JSON 의 screens 에 [{"name":"화면 이름","route":"/경로","desc":"한 줄 설명","next":["이어지는 화면 이름"]}] 형식으로 화면 목록을 넣으세요.' },
   { id: 'arch', role: 'architect', title: '아키텍처 결정 · 스타터 추천', doc: '_bmad-output/planning-artifacts/05-architecture.md',
-    task: '기술 스택, 폴더 구조, 데이터 모델, API 목록, 스타터 템플릿, 테스트 전략을 결정합니다. 반드시 JSON 의 testCommand 에 프로젝트 루트에서 실행할 테스트 명령을 넣으세요.' },
+    task: '기술 스택, 폴더 구조, 데이터 모델, API 목록, 스타터 템플릿, 테스트 전략을 결정합니다. 반드시 JSON 의 testCommand 에 프로젝트 루트에서 실행할 테스트 명령을 넣으세요. JSON 의 apis 에 [{"method":"GET","path":"/api/...","desc":"설명","auth":true}], entities 에 [{"name":"엔티티","fields":["id","..."]}] 를 넣으세요.' },
   { id: 'tickets', role: 'po', title: '티켓 트리 쪼개기', doc: '_bmad-output/planning-artifacts/06-tickets.md',
-    task: '에픽 → 스토리(티켓) 트리로 쪼갭니다. 티켓마다 수용 기준을 붙이고, 첫 에픽은 프로젝트 골격·테스트 실행 환경부터 시작하세요. JSON 의 epics 필드에 트리를 넣으세요.' },
+    task: '에픽 → 스토리(티켓) 트리로 쪼갭니다. 티켓마다 수용 기준을 붙이고, 첫 에픽은 프로젝트 골격·테스트 실행 환경부터 시작하세요. JSON 의 epics 필드에 트리를 넣으세요. 티켓마다 area 를 화면 / 권한 / 서버 / 데이터 / 배포 / 하네스 중 하나로 붙이세요(하네스 = 골격·테스트·설정).' },
   { id: 'gate', role: 'architect', title: '개발 직전 자동 점검', doc: '_bmad-output/planning-artifacts/07-readiness.md',
     task: '구현 준비 상태를 점검합니다: PRD↔UX↔아키텍처↔티켓 간 누락/모순, 테스트 명령 실행 가능성. JSON 의 verdict 에 PASS / CONCERNS / FAIL 중 하나를 넣으세요.' },
 ];
 
 export const stageById = (id) => PLANNING_STAGES.find((s) => s.id === id);
+
+// 프로젝트 지도 구역 (원본 화면의 상단 칩: 화면·권한·서버·데이터·배포·하네스·미상)
+export const AREAS = [
+  { id: '화면', color: '#3b82f6', desc: '페이지·컴포넌트·UI', kw: ['화면', '페이지', 'ui', '컴포넌트', '폼', '레이아웃', '디자인', '프론트', 'next', '버튼', '목록 표시'] },
+  { id: '권한', color: '#ef4444', desc: '로그인·인증·역할', kw: ['로그인', '인증', '권한', '회원', 'auth', 'jwt', '세션', '토큰', '관리자 계정'] },
+  { id: '서버', color: '#8b5cf6', desc: 'API·비즈니스 로직', kw: ['api', '엔드포인트', '서버', '백엔드', '라우터', 'fastapi', '요청 처리', '알림', '메일'] },
+  { id: '데이터', color: '#f59e0b', desc: 'DB·모델·저장', kw: ['db', '데이터', '모델', '스키마', '마이그레이션', '저장', '테이블', '엔티티', '업로드'] },
+  { id: '배포', color: '#10b981', desc: '인프라·CI·환경', kw: ['배포', 'docker', 'ci', '인프라', '환경변수', 'deploy', '도메인', '서버 설정'] },
+  { id: '하네스', color: '#64748b', desc: '골격·테스트·설정', kw: ['골격', '스캐폴드', '테스트 환경', '테스트 러너', '설정', 'lint', '초기화', '프로젝트 구조'] },
+  { id: '미상', color: '#94a3b8', desc: '아직 분류되지 않음', kw: [] },
+];
+
+/** 티켓 구역 분류: 에이전트가 준 area 를 우선하고, 없으면 키워드로 추정합니다. */
+export function classifyArea(t) {
+  if (AREAS.some((a) => a.id === t.area)) return t.area;
+  const text = `${t.title ?? ''} ${t.desc ?? ''}`.toLowerCase();
+  let best = '미상', score = 0;
+  for (const a of AREAS) {
+    const n = a.kw.filter((k) => text.includes(k)).length;
+    if (n > score) { best = a.id; score = n; }
+  }
+  return best;
+}

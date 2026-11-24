@@ -126,6 +126,21 @@ function person(x, y, z, role, opts = {}) {
     <g class="tag" transform="translate(0,-56)"><rect x="${-tw / 2}" y="0" width="${tw}" height="14" rx="7"/><text x="0" y="10.5">${esc(tag)}</text></g></g>`);
 }
 
+// ---------- 4F 구역(프로젝트 지도와 같은 분류) ----------
+export const ZONES = [['화면', '#3b82f6'], ['권한', '#ef4444'], ['서버', '#8b5cf6'], ['데이터', '#f59e0b'], ['배포', '#10b981'], ['하네스', '#64748b']];
+const zoneX = (i) => 0.7 + i * 2.15;
+function zonePills(z, state, activeArea) {
+  const all = state.epics.flatMap((e) => e.tickets);
+  return ZONES.map(([id, color], i) => {
+    const ts = all.filter((t) => (t.area === '미상' ? '하네스' : t.area) === id);
+    const done = ts.filter((t) => t.status === 'done').length;
+    const [px, py] = P(zoneX(i) + 0.85, ROWY + 1.35, z);
+    const label = ts.length ? `${id} ${done}/${ts.length}` : id;
+    const w = 10 + label.length * 6.6, on = activeArea === id;
+    return (`<g class="zone ${on ? 'on' : ''}" transform="translate(${px.toFixed(1)},${py.toFixed(1)})"><rect x="${-w / 2}" y="-8" width="${w}" height="16" rx="8" fill="${on ? color : '#ffffff'}" stroke="${color}" stroke-width="1.5"/><text x="0" y="3.2" fill="${on ? '#fff' : color}">${esc(label)}</text></g>`);
+  }).join('');
+}
+
 // ---------- 층별 배치 ----------
 const ROWY = 3.0; // 책상 줄 깊이
 function seatX(i, n) { return 1.2 + i * ((W - 2.4) / n); }
@@ -137,14 +152,14 @@ function furniture(floor, z, roles) {
     it.push(sofa(5.3, 3.9, z), plant(0.4, 5.2, z), plant(8.2, 4.6, z), shelf(8.8, 0.25, z, 2.2), plant(12.9, 0.4, z));
     it.push(desk(10.3, ROWY, z, 1), chair(10.9, ROWY - 0.75, z));
   } else {
-    const n = floor === 4 ? 4 : roles.length;
+    const n = floor === 4 ? ZONES.length : roles.length;
     for (let i = 0; i < n; i++) {
-      const x = floor === 4 ? 1.2 + i * 3.0 : seatX(i, n);
+      const x = floor === 4 ? zoneX(i) : seatX(i, n);
       it.push(desk(x, ROWY, z, floor === 4 ? 2 : 1), chair(x + 0.6, ROWY - 0.75, z));
     }
     if (floor === 2) it.push(plant(12.9, 4.9, z), item(13, box(10.2, 4.4, z, 2.2, 1.1, 0.7, '#f1f5f9')));
     if (floor === 3) it.push(rack(12.6, 0.5, z), plant(12.9, 4.9, z));
-    if (floor === 4) it.push(plant(13.0, 4.8, z), plant(0.4, 5.2, z));
+    if (floor === 4) it.push(plant(13.3, 4.9, z));
   }
   return it;
 }
@@ -242,14 +257,20 @@ export function renderDynamic(svg, meta, state, selectedFloor, setupOk = true) {
   if (key === lastKey) return; lastKey = key;
 
   let labels = '', bubbles = '';
+  const curT = state.epics.flatMap((e) => e.tickets).find((t) => ['dev', 'test', 'review'].includes(t.status));
+  const curArea = curT?.area ?? null;
   for (const f of meta.floors) {
     const z = (f.floor - 1) * H;
     svg.querySelector(`#wall-${f.floor}`).innerHTML = windowsAndBoards(f.floor, z, state);
     const its = furniture(f.floor, z, f.roles);
+    if (f.floor === 4) its.push(item(50, zonePills(z, state, act.floor === 4 ? curArea : null)));
     f.roles.forEach((r, i) => {
       const role = meta.roles[r];
       let x = f.floor === 1 ? 11.15 : seatX(i, f.roles.length) + 0.85;
-      if (f.floor === 4) x = 1.2 + 0.85; // 개발자는 첫 번째 자리
+      if (f.floor === 4) { // 개발 고양이는 지금 티켓의 구역 자리로 이동합니다.
+        const zi = ZONES.findIndex(([id]) => id === (curArea === '미상' ? '하네스' : curArea));
+        x = zoneX(Math.max(0, zi)) + 0.85;
+      }
       const active = r === 'ceo' ? ceoTurn : act.role === r;
       its.push(person(x - 0.15, ROWY - 0.35, z + 0.4, role, { key: r, active, dim: !active && act.role && act.floor === f.floor }));
       if (active) {

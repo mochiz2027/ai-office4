@@ -120,13 +120,36 @@ async function runMock({ cwd, onLog, signal, mock = {} }) {
       contract.testCommand = 'node --test';
       contract.questions.push({ q: '백엔드 스택을 무엇으로 할까요?', options: ['Next.js 단독', 'Next.js + FastAPI'], recommended: 1, why: '데이터 처리 요구가 있어 분리가 유리합니다.' });
     }
+    if (mock.stage === 'ux') contract.screens = [
+      { name: '홈', route: '/', desc: '서비스 소개와 견적 요청 시작', next: ['견적 요청'] },
+      { name: '견적 요청', route: '/quote/new', desc: '사진·치수 업로드 폼', next: ['요청 완료'] },
+      { name: '요청 완료', route: '/quote/done', desc: '접수 번호 안내', next: [] },
+      { name: '관리자 로그인', route: '/admin/login', desc: '관리자 인증', next: ['요청 목록'] },
+      { name: '요청 목록', route: '/admin/quotes', desc: '접수된 견적 요청 관리', next: [] },
+    ];
+    if (mock.stage === 'arch') {
+      contract.apis = [
+        { method: 'POST', path: '/api/quotes', desc: '견적 요청 접수', auth: false },
+        { method: 'GET', path: '/api/quotes', desc: '요청 목록(관리자)', auth: true },
+        { method: 'POST', path: '/api/auth/login', desc: '관리자 로그인', auth: false },
+      ];
+      contract.entities = [
+        { name: 'Quote', fields: ['id', 'name', 'phone', 'width_mm', 'height_mm', 'photo_url', 'status'] },
+        { name: 'AdminUser', fields: ['id', 'email', 'password_hash'] },
+      ];
+    }
     if (mock.stage === 'tickets') {
       contract.epics = [
         { title: '프로젝트 골격', tickets: [
-          { title: '저장소 골격과 테스트 환경', desc: '폴더 구조와 테스트 러너 설정', acceptance: ['테스트 명령이 통과한다'] },
-          { title: '홈 화면', desc: '첫 화면', acceptance: ['홈 화면이 렌더링된다'] } ] },
-        { title: '핵심 기능', tickets: [
-          { title: '목록 조회', desc: '데이터 목록', acceptance: ['목록이 보인다'] } ] },
+          { title: '저장소 골격과 테스트 환경', desc: '폴더 구조와 테스트 러너 설정', acceptance: ['테스트 명령이 통과한다'], area: '하네스' },
+          { title: '홈 화면', desc: '첫 화면', acceptance: ['홈 화면이 렌더링된다'], area: '화면' } ] },
+        { title: '견적 요청', tickets: [
+          { title: 'Quote 모델과 저장', desc: '견적 요청 테이블', acceptance: ['저장된다'], area: '데이터' },
+          { title: '견적 요청 API', desc: 'POST /api/quotes', acceptance: ['201 응답'] },
+          { title: '견적 요청 화면', desc: '사진·치수 업로드 폼', acceptance: ['폼 제출이 된다'] } ] },
+        { title: '관리자', tickets: [
+          { title: '관리자 로그인', desc: 'JWT 인증', acceptance: ['로그인된다'] },
+          { title: 'docker 배포 설정', desc: 'infra/docker-compose', acceptance: ['컨테이너가 뜬다'] } ] },
       ];
     }
     if (mock.stage === 'gate') contract.verdict = 'PASS';

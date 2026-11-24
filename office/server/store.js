@@ -12,6 +12,7 @@ export function freshState() {
     idea: '',
     stages: PLANNING_STAGES.map((s) => ({ id: s.id, status: 'todo', doc: s.doc, summary: '' })),
     epics: [],
+    blueprint: { screens: [], apis: [], entities: [] },
     currentEpic: null,
     testCommand: '',
     questions: [],

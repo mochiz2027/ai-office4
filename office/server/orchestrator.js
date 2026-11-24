@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { PLANNING_STAGES, ROLES, stageById } from './roles.js';
+import { PLANNING_STAGES, ROLES, stageById, classifyArea } from './roles.js';
 import { runAgent } from './engine.js';
 import { runChecks } from './doctor.js';
 
@@ -207,6 +207,10 @@ export class Orchestrator {
         if (id === 'arch' && c.testCommand) s.testCommand = c.testCommand;
         if (id === 'gate') x.verdict = c.verdict ?? 'CONCERNS';
         if (id === 'tickets' && Array.isArray(c.epics)) s.epics = this.#mkEpics(c.epics);
+        s.blueprint ??= { screens: [], apis: [], entities: [] };
+        if (Array.isArray(c.screens)) s.blueprint.screens = c.screens;
+        if (Array.isArray(c.apis)) s.blueprint.apis = c.apis;
+        if (Array.isArray(c.entities)) s.blueprint.entities = c.entities;
         if (s.mode === 'manual') s.approvals.push({ id: this.store.nextId('A', s.approvals), kind: 'stage', ref: id, text: `${def.title} 완료 — 확인 후 다음 단계로 넘어갈까요?` });
       });
       if (id === 'tickets' && !this.s.epics.length) this.#failStage(id, '티켓 트리(JSON epics)를 받지 못했습니다');
@@ -226,7 +230,7 @@ export class Orchestrator {
     let n = 0;
     return raw.map((e, i) => ({
       id: `E${i + 1}`, title: e.title, status: 'todo',
-      tickets: (e.tickets ?? []).map((t) => ({ id: `T${++n}`, title: t.title, desc: t.desc ?? '', acceptance: t.acceptance ?? [], status: 'todo', attempts: 0 })),
+      tickets: (e.tickets ?? []).map((t) => ({ id: `T${++n}`, title: t.title, desc: t.desc ?? '', acceptance: t.acceptance ?? [], area: classifyArea(t), status: 'todo', attempts: 0 })),
     }));
   }
 
@@ -280,6 +284,7 @@ export class Orchestrator {
       for (const c of s.changeRequests.filter((x) => x.status === 'pending')) {
         const idx = epic.tickets.findIndex((t) => t.status === 'todo');
         const t = { id: `T${++n}`, title: `[변경] ${c.text.slice(0, 40)}`, desc: c.text, acceptance: ['대표의 변경 요청이 반영되었다'], status: 'todo', attempts: 0, cr: c.id };
+        t.area = classifyArea(t);
         idx < 0 ? epic.tickets.push(t) : epic.tickets.splice(idx, 0, t);
         c.status = 'ticketed'; c.ticket = t.id;
       }
@@ -304,7 +309,7 @@ export class Orchestrator {
         const e = s.epics.find((x) => x.id === epicId);
         if (Array.isArray(r.contract.tickets) && r.contract.tickets.length) {
           const base = e.tickets[0] ? Number(e.tickets[0].id.slice(1)) : 1;
-          e.tickets = r.contract.tickets.map((t, i) => ({ id: `T${base}${i ? '-' + i : ''}`, title: t.title, desc: t.desc ?? '', acceptance: t.acceptance ?? [], status: 'todo', attempts: 0 }));
+          e.tickets = r.contract.tickets.map((t) => ({ id: '', title: t.title, desc: t.desc ?? '', acceptance: t.acceptance ?? [], area: classifyArea(t), status: 'todo', attempts: 0 }));
           e.tickets.forEach((t, i) => { t.id = i === 0 ? `T${base}` : `T${base}.${i}`; });
         }
         e.status = 'active';

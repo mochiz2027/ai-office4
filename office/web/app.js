@@ -5,12 +5,85 @@ const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const api = (p, body) => fetch(p, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {}).then((r) => r.json());
 
 let META = null, SNAP = null, LOGS = [];
-let floor = 2, tab = 'detail';
+let floor = 2, tab = 'detail', view = 'building', area = null;
 const PHASE = { idle: '시작 전', planning: '기획 중', ready: '빌드 승인 대기', building: '빌드 중', paused: '일시정지', done: '완료', error: '오류' };
 const ST = { todo: '대기', running: '진행 중', done: '완료', failed: '실패', dev: '개발', test: '테스트', review: '리뷰', skipped: '건너뜀', active: '진행', waiting: '대기' };
 
 // ---------------- 건물 ----------------
 function renderBuilding() { renderDynamic($('#building'), META, SNAP.state, floor, SNAP.setup?.ok !== false); }
+
+// ---------------- 프로젝트 지도 ----------------
+const STC = { done: 'done', dev: 'running', test: 'running', review: 'running', failed: 'failed', todo: '', skipped: '' };
+const allTickets = () => SNAP.state.epics.flatMap((e) => e.tickets.map((t) => ({ ...t, epic: e.id })));
+const areaOf = (t) => t.area ?? '미상';
+
+/** 이름이 티켓 제목·설명에 등장하는지로 설계 항목의 진행 상태를 추정합니다. */
+function itemStatus(words) {
+  const ws = words.filter(Boolean).map((w) => String(w).toLowerCase()).filter((w) => w.length > 1);
+  const ts = allTickets().filter((t) => ws.some((w) => `${t.title} ${t.desc}`.toLowerCase().includes(w)));
+  if (!ts.length) return ['none', '티켓 없음'];
+  if (ts.every((t) => t.status === 'done')) return ['done', '완료'];
+  if (ts.some((t) => ['dev', 'test', 'review'].includes(t.status))) return ['running', '진행 중'];
+  if (ts.some((t) => t.status === 'failed')) return ['failed', '실패'];
+  return ['todo', `대기 ${ts.length}`];
+}
+
+function renderViewChips() {
+  const ts = SNAP ? allTickets() : [];
+  const chip = (key, label, on, color, count) => `<button class="vchip ${on ? 'on' : ''}" data-view="${key}" ${color ? `style="--c:${color}"` : ''}>${label}${count != null ? ` <small>${count}</small>` : ''}</button>`;
+  $('#viewChips').innerHTML = chip('building', '🏢 건물 전체', view === 'building') + chip('map', '🗺 프로젝트 지도', view === 'map' && !area) + '<span class="sep"></span>' +
+    META.areas.map((a) => chip(`area:${a.id}`, a.id, view === 'map' && area === a.id, a.color, ts.filter((t) => areaOf(t) === a.id).length || null)).join('');
+}
+
+function renderMap() {
+  const s = SNAP.state, ts = allTickets(), bp = s.blueprint ?? { screens: [], apis: [], entities: [] };
+  const done = ts.filter((t) => t.status === 'done').length;
+  const pct = ts.length ? Math.round((done / ts.length) * 100) : 0;
+  const planDone = s.stages.filter((x) => x.status === 'done').length;
+  const areas = META.areas.filter((a) => !area || a.id === area);
+  const bar = (p, c = 'var(--accent)') => `<div class="bar"><i style="width:${p}%;background:${c}"></i></div>`;
+  const tRow = (t) => `<li><span class="st ${STC[t.status] ?? ''} ${t.status}">${ST[t.status] ?? t.status}</span><b>${esc(t.id)}</b> ${esc(t.title)} <small class="muted">${esc(t.epic)}</small></li>`;
+
+  let html = `<div class="pm-head card">
+    <div class="row"><h2>${esc(s.idea ? s.idea.split(/[.\n]/)[0].slice(0, 60) : '아직 프로젝트가 없습니다')}</h2><span class="st ${s.phase === 'done' ? 'done' : 'running'}">${PHASE[s.phase] ?? s.phase}</span></div>
+    <div class="kpis">
+      <div><small>기획 문서</small><b>${planDone}/${s.stages.length}</b>${bar(planDone / s.stages.length * 100, '#14b8a6')}</div>
+      <div><small>티켓 완료</small><b>${done}/${ts.length}</b>${bar(pct)}</div>
+      <div><small>화면</small><b>${bp.screens.length}</b></div><div><small>API</small><b>${bp.apis.length}</b></div><div><small>데이터 모델</small><b>${bp.entities.length}</b></div>
+    </div>
+    ${s.epics.length ? `<div class="epics">${s.epics.map((e) => { const d = e.tickets.filter((t) => t.status === 'done').length; return `<div class="ep"><span><b>${e.id}</b> ${esc(e.title)}</span><small>${d}/${e.tickets.length}</small>${bar(e.tickets.length ? d / e.tickets.length * 100 : 0, e.status === 'done' ? '#22c55e' : 'var(--accent)')}</div>`; }).join('')}</div>` : ''}
+  </div>`;
+  if (!ts.length && !bp.screens.length) html += `<div class="card empty">2F 기획실에 아이디어를 쓰면 기획이 진행되면서 이 지도가 채워집니다. 화면 목록은 UX 단계, API·데이터 모델은 아키텍처 단계, 구역별 티켓은 티켓 트리 단계에서 생깁니다.</div>`;
+
+  // 구역 카드
+  html += `<h3 class="pm-sec">구역별 진행</h3><div class="areas">${areas.map((a) => {
+    const at = ts.filter((t) => areaOf(t) === a.id), d = at.filter((t) => t.status === 'done').length;
+    if (!area && !at.length && a.id === '미상') return '';
+    return `<div class="card area" style="--c:${a.color}"><div class="row"><b>${a.id}</b><small class="muted">${a.desc}</small><span class="cnt">${d}/${at.length}</span></div>${bar(at.length ? d / at.length * 100 : 0, a.color)}
+      <ul>${at.map(tRow).join('') || '<li class="muted">티켓 없음</li>'}</ul></div>`;
+  }).join('')}</div>`;
+
+  // 화면 흐름
+  if ((!area || area === '화면') && bp.screens.length) html += `<h3 class="pm-sec">화면 흐름 <small class="muted">UX 문서 기준</small></h3><div class="flow">${bp.screens.map((sc) => {
+    const [k, label] = itemStatus([sc.name, sc.route]);
+    return `<div class="scr ${k}"><div class="phone"><div class="bar2"></div><b>${esc(sc.name)}</b><code>${esc(sc.route ?? '')}</code><p>${esc(sc.desc ?? '')}</p></div>
+      <span class="st ${k}">${label}</span>${(sc.next ?? []).length ? `<small class="muted">→ ${sc.next.map(esc).join(', ')}</small>` : ''}</div>`;
+  }).join('')}</div>`;
+
+  // API
+  if ((!area || area === '서버' || area === '권한') && bp.apis.length) html += `<h3 class="pm-sec">API <small class="muted">아키텍처 문서 기준</small></h3><div class="card"><table class="api">${bp.apis.filter((a) => area !== '권한' || a.auth || /auth|login/i.test(a.path)).map((a) => {
+    const [k, label] = itemStatus([a.path, a.desc]);
+    return `<tr><td><span class="m m-${esc(a.method)}">${esc(a.method)}</span></td><td><code>${esc(a.path)}</code></td><td>${esc(a.desc ?? '')}</td><td>${a.auth ? '🔒' : ''}</td><td><span class="st ${k}">${label}</span></td></tr>`;
+  }).join('')}</table></div>`;
+
+  // 데이터 모델
+  if ((!area || area === '데이터') && bp.entities.length) html += `<h3 class="pm-sec">데이터 모델</h3><div class="ents">${bp.entities.map((en) => {
+    const [k, label] = itemStatus([en.name]);
+    return `<div class="ent ${k}"><div class="row"><b>${esc(en.name)}</b><span class="st ${k}">${label}</span></div><ul>${(en.fields ?? []).map((f) => `<li>${esc(f)}</li>`).join('')}</ul></div>`;
+  }).join('')}</div>`;
+
+  $('#projectMap').innerHTML = html;
+}
 
 // ---------------- 패널 ----------------
 function selectFloor(f) { floor = f; renderAll(); }
@@ -164,7 +237,11 @@ function showTab() {
 
 function renderAll() {
   if (!SNAP || !META) return;
-  renderTop(); renderFloorNav(); renderBuilding();
+  renderTop(); renderViewChips(); renderFloorNav(); renderBuilding();
+  const isMap = view === 'map';
+  $('#building').classList.toggle('hidden', isMap); $('#floorNav').classList.toggle('hidden', isMap);
+  document.querySelector('.flow-label').classList.toggle('hidden', isMap); $('#projectMap').classList.toggle('hidden', !isMap);
+  if (isMap) renderMap();
   if (tab === 'detail') { renderFloorInfo(); renderFeed(); renderLedger(); }
   if (tab === 'progress') renderProgress();
   if (tab === 'log') renderLog();
@@ -175,7 +252,8 @@ function renderAll() {
 document.addEventListener('click', async (e) => {
   const t = e.target.closest('button'); if (!t) return;
   const d = t.dataset, msg = $('#msg');
-  if (d.tab) { tab = d.tab; showTab(); }
+  if (d.view) { if (d.view.startsWith('area:')) { view = 'map'; area = d.view.slice(5); } else { view = d.view; area = null; } renderAll(); }
+  else if (d.tab) { tab = d.tab; showTab(); }
   else if (d.mode) await api('/api/mode', { mode: d.mode });
   else if (d.answer) await api('/api/answer', { id: d.answer, answer: d.val });
   else if (d.answerFree) { if (!msg.value.trim()) return msg.focus(); await api('/api/answer', { id: d.answerFree, answer: msg.value.trim() }); msg.value = ''; }

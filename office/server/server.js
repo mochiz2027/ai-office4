@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { Store } from './store.js';
 import { Orchestrator } from './orchestrator.js';
 import { computeLedger } from './ledger.js';
-import { FLOORS, ROLES, PLANNING_STAGES } from './roles.js';
+import { FLOORS, ROLES, PLANNING_STAGES, AREAS } from './roles.js';
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'web');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' };
@@ -25,7 +25,7 @@ export function startServer({ projectDir, port = 4780, host = '127.0.0.1', engin
   const json = (res, code, obj) => { res.writeHead(code, { 'content-type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(obj)); };
 
   const routes = {
-    'GET /api/meta': () => ({ floors: FLOORS, roles: ROLES, stages: PLANNING_STAGES, projectDir, engine }),
+    'GET /api/meta': () => ({ floors: FLOORS, roles: ROLES, stages: PLANNING_STAGES, areas: AREAS.map(({ kw, ...a }) => a), projectDir, engine }),
     'GET /api/snapshot': () => snapshot(),
     'GET /api/logs': () => store.logs,
     'POST /api/message': (b) => orch.postMessage(Number(b.floor), b.text),

@@ -89,3 +89,19 @@ test('설치 점검: 필수 항목이 빠지면 빌드를 시작하지 않는다
     assert.ok(computeLedger(store.state, dir).humanTurns.some((h) => h.kind === 'setup'));
   } finally { process.env.PATH = oldPath; }
 });
+
+test('프로젝트 지도: 설계 항목과 티켓 구역이 상태에 저장된다', async () => {
+  process.env.MWA_MOCK_DELAY = '5';
+  const { classifyArea } = await import('../server/roles.js');
+  assert.equal(classifyArea({ title: '관리자 로그인' }), '권한');
+  assert.equal(classifyArea({ title: '무언가', area: '배포' }), '배포');
+  assert.equal(classifyArea({ title: '알 수 없는 일' }), '미상');
+  const dir = tmp();
+  const store = new Store(dir);
+  const orch = new Orchestrator(store, { engine: 'mock' });
+  orch.postMessage(2, '아이디어');
+  await until(() => store.state.phase === 'done');
+  const bp = store.state.blueprint;
+  assert.ok(bp.screens.length && bp.apis.length && bp.entities.length);
+  assert.ok(store.state.epics.flatMap((e) => e.tickets).every((t) => t.area && t.area !== '미상'));
+});
