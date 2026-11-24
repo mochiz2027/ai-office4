@@ -6,11 +6,37 @@ const api = (p, body) => fetch(p, body ? { method: 'POST', headers: { 'content-t
 
 let META = null, SNAP = null, LOGS = [];
 let floor = 2, tab = 'detail', view = 'building', area = null;
+// 3D 사옥: WebGL 이 되면 기본으로 켜고, 사용자가 2D 를 고르면 기억합니다.
+let three = null, use3d = true;
+try { use3d = localStorage.getItem('mwa.view3d') !== '0'; } catch { /* 저장소 없음 */ }
 const PHASE = { idle: '시작 전', planning: '기획 중', ready: '빌드 승인 대기', building: '빌드 중', paused: '일시정지', done: '완료', error: '오류' };
 const ST = { todo: '대기', running: '진행 중', done: '완료', failed: '실패', dev: '개발', test: '테스트', review: '리뷰', skipped: '건너뜀', active: '진행', waiting: '대기' };
 
 // ---------------- 건물 ----------------
-function renderBuilding() { renderDynamic($('#building'), META, SNAP.state, floor, SNAP.setup?.ok !== false); }
+function renderBuilding() {
+  const ok = SNAP.setup?.ok !== false;
+  if (three && use3d) three.render(SNAP.state, floor, ok); else renderDynamic($('#building'), META, SNAP.state, floor, ok);
+}
+
+async function init3d() {
+  if (three || !use3d) return;
+  try {
+    const mod = await import('./building3d.js');
+    if (!mod.webglAvailable()) throw new Error('WebGL 미지원');
+    three = mod.create3D($('#scene3d'), META, { onFloor: (f) => selectFloor(f), onExit: () => renderAll() });
+  } catch (e) {
+    console.warn('3D 사옥을 켤 수 없어 2D 로 표시합니다:', e.message);
+    three = null; use3d = false;
+    $('#toggle3d').disabled = true; $('#toggle3d').title = '이 브라우저는 3D(WebGL)를 지원하지 않습니다.';
+  }
+  renderAll();
+}
+function set3d(on) {
+  use3d = on;
+  try { localStorage.setItem('mwa.view3d', on ? '1' : '0'); } catch { /* 저장소 없음 */ }
+  if (on && !three) return init3d();
+  renderAll();
+}
 
 // ---------------- 프로젝트 지도 ----------------
 const STC = { done: 'done', dev: 'running', test: 'running', review: 'running', failed: 'failed', todo: '', skipped: '' };
@@ -86,7 +112,12 @@ function renderMap() {
 }
 
 // ---------------- 패널 ----------------
-function selectFloor(f) { floor = f; renderAll(); }
+function selectFloor(f) {
+  floor = f;
+  if (view === 'map') { view = 'building'; area = null; }
+  if (three && use3d) three.enter(f);
+  renderAll();
+}
 function renderFloorNav() {
   const s = SNAP.state;
   $('#floorNav').innerHTML = [...META.floors].reverse().map((f) => `<button class="${f.floor === floor ? 'on' : ''}" data-f="${f.floor}">
@@ -238,8 +269,12 @@ function showTab() {
 function renderAll() {
   if (!SNAP || !META) return;
   renderTop(); renderViewChips(); renderFloorNav(); renderBuilding();
-  const isMap = view === 'map';
-  $('#building').classList.toggle('hidden', isMap); $('#floorNav').classList.toggle('hidden', isMap);
+  const isMap = view === 'map', is3d = !!(three && use3d);
+  $('#building').classList.toggle('hidden', isMap || is3d); $('#scene3d').classList.toggle('hidden', isMap || !is3d);
+  $('#floorNav').classList.toggle('hidden', isMap); $('#view3dBar').classList.toggle('hidden', isMap);
+  $('#toggle3d').textContent = is3d ? '2D로 보기' : '3D 사옥 보기';
+  $('#exitFloor').hidden = !(is3d && three.entered);
+  document.querySelector('.hint3d').hidden = !is3d;
   document.querySelector('.flow-label').classList.toggle('hidden', isMap); $('#projectMap').classList.toggle('hidden', !isMap);
   if (isMap) renderMap();
   if (tab === 'detail') { renderFloorInfo(); renderFeed(); renderLedger(); }
@@ -252,7 +287,10 @@ function renderAll() {
 document.addEventListener('click', async (e) => {
   const t = e.target.closest('button'); if (!t) return;
   const d = t.dataset, msg = $('#msg');
-  if (d.view) { if (d.view.startsWith('area:')) { view = 'map'; area = d.view.slice(5); } else { view = d.view; area = null; } renderAll(); }
+  if (d.view) {
+    if (d.view.startsWith('area:')) { view = 'map'; area = d.view.slice(5); } else { view = d.view; area = null; }
+    if (d.view === 'building' && three?.entered) three.exit(); else renderAll();
+  }
   else if (d.tab) { tab = d.tab; showTab(); }
   else if (d.mode) await api('/api/mode', { mode: d.mode });
   else if (d.answer) await api('/api/answer', { id: d.answer, answer: d.val });
@@ -267,6 +305,8 @@ document.addEventListener('click', async (e) => {
   else if (d.goto) selectFloor(Number(d.goto));
   else if (t.id === 'recheck') { SNAP.ledger = await api('/api/recheck', {}); renderAll(); }
 });
+$('#toggle3d').onclick = () => set3d(!(three && use3d));
+$('#exitFloor').onclick = () => three?.exit();
 $('#pauseBtn').onclick = () => api(SNAP.state.phase === 'paused' ? '/api/resume' : '/api/pause', {});
 $('#docOpen').onclick = () => openDoc($('#docSel').value);
 $('#logFloor').onchange = renderLog;
@@ -282,5 +322,6 @@ $('#msg').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlK
   const es = new EventSource('/api/events');
   es.addEventListener('state', (e) => { SNAP = JSON.parse(e.data); renderAll(); });
   es.addEventListener('log', (e) => { LOGS.push(JSON.parse(e.data)); if (LOGS.length > 600) LOGS.shift(); if (tab === 'detail') renderFeed(); if (tab === 'log') renderLog(); });
+  init3d();
   es.onerror = () => { $('#status').textContent = '서버와 연결이 끊겼습니다. 터미널에서 mwa up 이 켜져 있는지 확인하세요.'; };
 })();

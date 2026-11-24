@@ -62,7 +62,7 @@ function rack(x, y, z) {
 
 // ---------- 픽셀아트 고양이 ----------
 // O 외곽선, F 털, S 줄무늬, L 밝은 털, E 눈, W 눈 하이라이트, P 분홍(귀·코), C 목걸이(역할 색)
-const CAT = [
+export const CAT = [
   '..O........O...',
   '.OFO......OFO..',
   '.OPFO....OFPO..',
@@ -80,7 +80,7 @@ const CAT = [
   '.OOOOOOOOOOOO..',
 ];
 // 역할별 털 색 [털, 줄무늬, 밝은 털, 눈]
-const FUR = {
+export const FUR = {
   ceo: ['#f59e0b', '#c2410c', '#fde7c2', '#1f2937'],       // 치즈 태비(대표)
   analyst: ['#9ca3af', '#6b7280', '#e5e7eb', '#1f2937'],   // 회색 태비
   pm: ['#f2d3a0', '#d4a65f', '#fff7e8', '#1f2937'],        // 크림

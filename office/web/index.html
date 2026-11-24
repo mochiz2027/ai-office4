@@ -23,8 +23,14 @@
   <main class="layout">
     <section class="stage">
       <div class="flow-label">일의 흐름 ↑</div>
+      <div id="scene3d" class="scene3d hidden" aria-label="3D 사옥 (드래그로 회전, 휠로 확대, 층을 눌러 들어가기)"></div>
       <svg id="building" viewBox="-430 -470 900 640" aria-label="사무실 건물"></svg>
       <nav class="floor-nav" id="floorNav"></nav>
+      <div class="view3d hidden" id="view3dBar">
+        <button class="btn" id="exitFloor" hidden>⬆ 건물 전체 보기</button>
+        <button class="btn" id="toggle3d">2D로 보기</button>
+        <small class="hint3d">드래그: 회전 · 휠: 확대 · 층 클릭: 들어가기</small>
+      </div>
       <div class="pmap hidden" id="projectMap"></div>
     </section>
 
@@ -59,6 +65,7 @@
       </div>
     </aside>
   </main>
+  <script type="importmap">{ "imports": { "three": "/vendor/three.module.min.js" } }</script>
   <script type="module" src="/app.js"></script>
 </body>
 </html>

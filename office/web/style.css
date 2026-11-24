@@ -178,3 +178,27 @@ table.api { width: 100%; border-collapse: collapse; font-size: 12.5px; } table.a
 .ent li { font-family: ui-monospace, monospace; font-size: 12px; border-top: 1px dashed var(--line); padding-top: 3px; }
 .ent.done { border-color: var(--ok); } .ent.running { border-color: var(--accent); }
 @media (max-width: 900px) { .kpis { grid-template-columns: repeat(2, 1fr); } .views { order: 4; flex-basis: 100%; } }
+
+/* ---------------- 3D 사옥 ---------------- */
+.scene3d { position: absolute; inset: 0; cursor: grab; }
+.scene3d canvas { display: block; }
+.scene3d:active { cursor: grabbing; }
+.labels3d { position: absolute; inset: 0; pointer-events: none; }
+.labels3d > div { pointer-events: none; }
+.flabel3d { display: flex; gap: 6px; align-items: flex-start; pointer-events: auto !important; cursor: pointer; background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--c, #888); border-radius: 10px; padding: 6px 10px; font-size: 12px; line-height: 1.35; box-shadow: 0 4px 14px rgba(0,0,0,.12); white-space: nowrap; color: var(--text); }
+.flabel3d b { display: inline-block; color: #fff; background: var(--c, #888); border-radius: 6px; padding: 0 6px; margin-right: 6px; font-size: 11px; }
+.flabel3d strong { font-weight: 700; }
+.flabel3d small { display: block; color: var(--muted); font-size: 11px; }
+.flabel3d em { display: inline-block; margin-top: 2px; font-style: normal; font-size: 11px; color: #fff; background: var(--c); border-radius: 999px; padding: 0 7px; font-weight: 600; }
+.flabel3d.on { outline: 2px solid var(--c, #888); outline-offset: 2px; }
+.scene3d.entered .flabel3d { opacity: .55; }
+.tag3d { background: rgba(17,24,39,.82); color: #fff; font-size: 10px; padding: 1px 6px; border-radius: 6px; white-space: nowrap; }
+.tag3d.rail { background: var(--accent, #3b82f6); }
+.bubble3d { max-width: 200px; background: #fff; color: #111; border: 1px solid #d1d5db; font-size: 11px; padding: 4px 8px; border-radius: 10px; box-shadow: 0 3px 10px rgba(0,0,0,.15); white-space: normal; }
+.bubble3d:empty, .bubble3d.off { display: none !important; }
+.zone3d { background: var(--surface); color: var(--muted); border: 1px solid var(--c, var(--line)); font-size: 10px; padding: 1px 6px; border-radius: 999px; white-space: nowrap; }
+.zone3d.on { background: var(--c, #3b82f6); color: #fff; font-weight: 700; }
+.sign3d { background: #0f172a; color: #fff; font-size: 10px; padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
+.floor-nav, .view3d { z-index: 2; }
+.view3d { position: absolute; left: 16px; bottom: 16px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.view3d .hint3d { color: var(--muted); background: var(--surface); padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line); }
