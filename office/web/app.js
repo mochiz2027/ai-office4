@@ -10,7 +10,7 @@ const PHASE = { idle: '시작 전', planning: '기획 중', ready: '빌드 승�
 const ST = { todo: '대기', running: '진행 중', done: '완료', failed: '실패', dev: '개발', test: '테스트', review: '리뷰', skipped: '건너뜀', active: '진행', waiting: '대기' };
 
 // ---------------- 건물 ----------------
-function renderBuilding() { renderDynamic($('#building'), META, SNAP.state, floor); }
+function renderBuilding() { renderDynamic($('#building'), META, SNAP.state, floor, SNAP.setup?.ok !== false); }
 
 // ---------------- 패널 ----------------
 function selectFloor(f) { floor = f; renderAll(); }
@@ -50,11 +50,23 @@ function board() {
     .map((t) => `<div class="ticket" title="${esc(t.desc)}"><b>${esc(t.id)}</b> ${esc(t.title)} ${t.status === 'failed' ? '<span class="st failed">실패</span>' : ''}${t.status === 'skipped' ? '<span class="st">건너뜀</span>' : ''}</div>`).join('')}</div>`).join('')}</div>`;
 }
 
+function setupCard() {
+  const r = SNAP.setup;
+  if (!r) return '';
+  const ago = Math.max(0, Math.round((Date.now() - new Date(r.checkedAt)) / 60000));
+  return `<div class="setup ${r.ok ? 'pass' : 'fail'}"><div class="row"><b>설치 점검</b><span class="st ${r.ok ? 'done' : 'failed'}">${r.ok ? '통과' : '필수 항목 누락'}</span>
+    <small class="muted">${ago}분 전</small><button class="btn small" data-setup="1">다시 보기</button></div>
+    <ul>${r.items.map((i) => `<li><span class="${i.ok ? 'ok-mark' : i.required ? 'no-mark' : 'warn-mark'}">${i.ok ? '●' : i.required ? '✕' : '!'}</span> ${esc(i.label)} <span class="muted">${esc(i.detail)}</span>
+      ${!i.ok && i.fix ? `<code class="fix">${esc(i.fix)}</code>` : ''}</li>`).join('')}</ul>
+    ${r.ok ? '' : '<p class="muted" style="margin:6px 0 0">필수 항목(✕)을 Ubuntu 터미널에서 고친 뒤 "다시 보기"를 누르세요. 빌드는 통과할 때까지 시작되지 않습니다.</p>'}</div>`;
+}
+
 function renderFloorInfo() {
   const s = SNAP.state, f = META.floors.find((x) => x.floor === floor);
   let body = '';
   if (floor === 1) body = `<p class="muted">프로젝트 폴더: <code>${esc(SNAP.meta.projectDir)}</code></p>
     <p>${s.idea ? `<b>아이디어</b><br>${esc(s.idea)}` : '아직 아이디어가 없습니다. 2F 기획실에서 시작하세요.'}</p>`;
+  if (floor === 1) body += setupCard();
   if (floor === 2) body = stageList();
   if (floor === 3) body = s.epics.length ? `${s.epics.map((e) => `<div class="row"><span><b>${e.id}</b> ${esc(e.title)}</span><span class="st ${e.status}">${ST[e.status] ?? e.status}</span></div>`).join('')}<div style="height:8px"></div>${board()}` : '<p class="muted">티켓은 2F 기획이 끝나면 생깁니다.</p>';
   if (floor === 4) {
@@ -94,6 +106,7 @@ function humanTurn(h) {
   if (h.kind === 'approval') return `<div class="turn"><div>${esc(h.text)}</div><div class="opts"><button class="btn small primary" data-approve="${esc(h.id)}">승인</button>
     ${s.approvals.find((a) => a.id === h.id)?.kind === 'stage' ? `<button class="btn small" data-redo="${esc(h.id)}">재작성(메시지 칸 내용을 지시로)</button>` : ''}</div></div>`;
   if (h.kind === 'ticket-failed') return `<div class="turn"><div>${esc(h.text)}</div><div class="opts"><button class="btn small primary" data-retry="ticket:${esc(h.id)}">재시도</button><button class="btn small" data-skip="${esc(h.id)}">건너뛰기</button></div></div>`;
+  if (h.kind === 'setup') return `<div class="turn"><div>${esc(h.text)}</div><div class="opts"><button class="btn small primary" data-setup="1">다시 점검</button><button class="btn small" data-goto="1">1F 설치 점검 보기</button></div></div>`;
   if (h.kind === 'stage-failed') return `<div class="turn"><div>${esc(h.text)}</div><div class="opts"><button class="btn small primary" data-retry="stage:${esc(h.id)}">재시도</button></div></div>`;
   return '';
 }
@@ -172,6 +185,8 @@ document.addEventListener('click', async (e) => {
   else if (d.skip) await api('/api/skip', { id: d.skip });
   else if (d.assume) await api('/api/assumption', { id: d.assume, ok: d.ok === '1' });
   else if (d.doc) openDoc(d.doc);
+  else if (d.setup) { t.disabled = true; t.textContent = '점검 중…'; SNAP.setup = await api('/api/setup', {}); renderAll(); }
+  else if (d.goto) selectFloor(Number(d.goto));
   else if (t.id === 'recheck') { SNAP.ledger = await api('/api/recheck', {}); renderAll(); }
 });
 $('#pauseBtn').onclick = () => api(SNAP.state.phase === 'paused' ? '/api/resume' : '/api/pause', {});

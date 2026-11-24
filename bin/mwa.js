@@ -24,22 +24,15 @@ async function init({ quiet, starter } = {}) {
   return r;
 }
 
-function doctor() {
-  const checks = [];
-  const major = Number(process.versions.node.split('.')[0]);
-  checks.push(['Node.js 20 이상', major >= 20, process.version]);
-  const git = spawnSync('git', ['--version'], { encoding: 'utf8' });
-  checks.push(['git', git.status === 0, git.stdout?.trim() || '설치 필요']);
-  const cl = spawnSync('claude', ['--version'], { encoding: 'utf8' });
-  checks.push(['Claude Code CLI (claude)', cl.status === 0, cl.status === 0 ? cl.stdout.trim() : 'npm i -g @anthropic-ai/claude-code 후 claude 로 로그인']);
-  const uv = spawnSync('uv', ['--version'], { encoding: 'utf8' });
-  checks.push(['uv (Python 스타터용, 선택)', true, uv.status === 0 ? uv.stdout.trim() : '없음 — curl -LsSf https://astral.sh/uv/install.sh | sh']);
-  const isWin = process.platform === 'win32';
-  const wsl = os.release().toLowerCase().includes('microsoft');
-  checks.push(['실행 환경', !isWin, isWin ? 'Windows 는 WSL(Ubuntu) 안에서 실행을 권장합니다' : wsl ? 'WSL' : process.platform]);
-  checks.push(['ANTHROPIC_API_KEY', true, process.env.ANTHROPIC_API_KEY ? '설정됨(API 과금)' : '없음 — claude 로그인 구독으로 실행합니다']);
-  for (const [name, ok, detail] of checks) console.log(`${ok ? '✅' : '❌'} ${name.padEnd(26)} ${detail}`);
-  return checks.every(([, ok]) => ok);
+async function doctor() {
+  const { runChecks } = await import(path.join(ROOT, 'office/server/doctor.js'));
+  const r = runChecks(projectDir, { engine: flag('engine', 'claude') });
+  for (const i of r.items) {
+    const mark = i.ok ? '✅' : i.required ? '❌' : '⚠️ ';
+    console.log(`${mark} ${i.label.padEnd(22)} ${i.detail}${!i.ok && i.fix ? `\n     → ${i.fix}` : ''}`);
+  }
+  console.log(r.ok ? '\n필수 항목을 모두 통과했습니다.' : '\n❌ 필수 항목이 빠져 있습니다. 위의 → 명령으로 고친 뒤 다시 점검하세요.');
+  return r.ok;
 }
 
 function openBrowser(url) {
@@ -89,7 +82,7 @@ const help = `mwa ${pkg.version} — 바이브코딩 사무실
 switch (cmd) {
   case 'up': await up(); break;
   case 'init': { const st = flag('starter', 'nextjs-fastapi'); await init({ starter: st === 'none' || st === true ? null : st }); break; }
-  case 'doctor': process.exitCode = doctor() ? 0 : 1; break;
+  case 'doctor': process.exitCode = (await doctor()) ? 0 : 1; break;
   case 'status': status(); break;
   case 'version': case '--version': case '-v': console.log(pkg.version); break;
   default: console.log(help);

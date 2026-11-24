@@ -16,7 +16,7 @@ export function startServer({ projectDir, port = 4780, host = '127.0.0.1', engin
   const orch = new Orchestrator(store, { engine, model });
   const clients = new Set();
   const send = (event, data) => { const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`; for (const c of clients) c.write(msg); };
-  const snapshot = () => ({ state: store.state, ledger: computeLedger(store.state, projectDir), meta: { projectDir, engine, busy: orch.busy } });
+  const snapshot = () => ({ state: store.state, ledger: computeLedger(store.state, projectDir), meta: { projectDir, engine, busy: orch.busy }, setup: orch.setup ?? null });
   let pending = null;
   store.on('state', () => { if (!pending) pending = setTimeout(() => { pending = null; send('state', snapshot()); }, 80); });
   store.on('log', (e) => send('log', e));
@@ -37,6 +37,7 @@ export function startServer({ projectDir, port = 4780, host = '127.0.0.1', engin
     'POST /api/skip': (b) => orch.skipTicket(b.id),
     'POST /api/pause': () => orch.pause(),
     'POST /api/resume': () => orch.resume(),
+    'POST /api/setup': () => orch.recheckSetup(),
     'POST /api/recheck': () => { store.save(); return computeLedger(store.state, projectDir); },
   };
 
@@ -77,7 +78,7 @@ export function startServer({ projectDir, port = 4780, host = '127.0.0.1', engin
       for (const st of s.stages) if (st.status === 'running') st.status = 'todo';
       for (const e of s.epics) for (const t of e.tickets) if (['dev', 'test', 'review'].includes(t.status)) t.status = 'todo';
     });
-    orch.kick();
+    orch.recheckSetup();
     resolve({ server, store, orch, url: `http://${host}:${server.address().port}` });
   }));
 }

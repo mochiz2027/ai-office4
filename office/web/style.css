@@ -127,3 +127,11 @@ pre.doc { white-space: pre-wrap; word-break: break-word; background: var(--surfa
   .floor-nav { display: none; }
   .top { flex-wrap: wrap; } .status { order: 3; flex-basis: 100%; }
 }
+
+.setup { margin-top: 10px; border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: var(--surface-2); }
+.setup.fail { border-color: var(--err); background: var(--err-soft); }
+.setup ul { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; }
+.setup .row { justify-content: flex-start; }
+.setup .row small { margin-left: auto; }
+.warn-mark { color: var(--warn); font-weight: 700; }
+code.fix { display: block; margin: 2px 0 2px 16px; font-size: 11.5px; background: var(--surface); padding: 2px 6px; border-radius: 6px; width: fit-content; }

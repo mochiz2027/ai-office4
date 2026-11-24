@@ -6,6 +6,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { PLANNING_STAGES, ROLES, stageById } from './roles.js';
 import { runAgent } from './engine.js';
+import { runChecks } from './doctor.js';
 
 const AGENTS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'agents');
 const MAX_ATTEMPTS = 3;
@@ -132,9 +133,20 @@ export class Orchestrator {
     }).finally(() => { this.busy = false; this.#setActivity(null); });
   }
 
+  /** 설치 점검을 다시 하고, 막혀 있던 빌드를 풉니다. */
+  recheckSetup() {
+    this.setup = runChecks(this.cwd, { engine: this.engine });
+    if (this.setup.ok && this.s.setupBlock?.length) {
+      this.store.update((s) => { s.setupBlock = []; });
+      this.log('설치 점검을 통과했습니다. 빌드를 이어 갑니다.', { floor: 1 });
+    } else this.store.save();
+    this.kick();
+    return this.setup;
+  }
+
   isBlocked() {
     const s = this.s;
-    return s.approvals.length > 0 || s.questions.some((q) => q.status === 'open');
+    return (s.setupBlock?.length ?? 0) > 0 || s.approvals.length > 0 || s.questions.some((q) => q.status === 'open');
   }
 
   async #loop() {
@@ -236,6 +248,15 @@ export class Orchestrator {
   // ---------- 빌드 ----------
   async #stepBuilding() {
     const s = this.s;
+    if (!this.setup?.ok) { // 빌드 직전 설치 점검: 필수 항목이 빠지면 시작하지 않습니다.
+      this.setup = runChecks(this.cwd, { engine: this.engine });
+      if (!this.setup.ok) {
+        const miss = this.setup.items.filter((i) => i.required && !i.ok).map((i) => i.label);
+        this.store.update((x) => { x.setupBlock = miss; });
+        this.log(`설치 점검 미통과로 빌드를 멈췄습니다: ${miss.join(', ')} — 1F 로비의 설치 점검 카드를 확인하세요.`, { floor: 1, level: 'error' });
+        return false;
+      }
+    }
     if (s.changeRequests.some((c) => c.status === 'pending')) { this.#applyChangeRequests(); return true; }
     const epic = s.epics.find((e) => e.status !== 'done');
     if (!epic) {

@@ -70,3 +70,22 @@ test('scaffold: 스타터 골격을 만들고 기존 파일은 덮어쓰지 않�
   new Orchestrator(store, { engine: 'mock' });
   assert.equal(store.state.testCommand, 'bash scripts/test.sh');
 });
+
+test('설치 점검: 필수 항목이 빠지면 빌드를 시작하지 않는다', async () => {
+  const dir = tmp();
+  const bin = tmp();
+  const which = (c) => (process.env.PATH.split(':').map((d) => path.join(d, c)).find((p) => fs.existsSync(p)));
+  fs.symlinkSync(which('git'), path.join(bin, 'git')); // claude 는 일부러 빼 둡니다
+  const oldPath = process.env.PATH;
+  process.env.PATH = bin;
+  try {
+    const store = new Store(dir);
+    store.update((s) => { s.phase = 'building'; s.epics = [{ id: 'E1', title: 'x', status: 'active', tickets: [{ id: 'T1', title: 't', desc: '', acceptance: [], status: 'todo', attempts: 0 }] }]; });
+    const orch = new Orchestrator(store, { engine: 'claude' });
+    orch.kick();
+    await until(() => !orch.busy);
+    assert.deepEqual(store.state.setupBlock, ['Claude Code CLI']);
+    assert.equal(store.state.epics[0].tickets[0].status, 'todo');
+    assert.ok(computeLedger(store.state, dir).humanTurns.some((h) => h.kind === 'setup'));
+  } finally { process.env.PATH = oldPath; }
+});

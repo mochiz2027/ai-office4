@@ -235,10 +235,10 @@ export function buildStatic(svg, meta, onFloor) {
 
 let lastKey = '';
 /** 상태에 따라 바뀌는 부분(사람·보드·라벨·엘리베이터)을 다시 그립니다. */
-export function renderDynamic(svg, meta, state, selectedFloor) {
+export function renderDynamic(svg, meta, state, selectedFloor, setupOk = true) {
   const act = state.activity ?? {};
-  const ceoTurn = state.approvals.length > 0 || state.questions.some((q) => q.status === 'open');
-  const key = JSON.stringify([act, state.stages.map((x) => x.status), state.epics.map((e) => e.tickets.map((t) => t.status)), ceoTurn, selectedFloor, state.phase]);
+  const ceoTurn = state.approvals.length > 0 || state.questions.some((q) => q.status === 'open') || (state.setupBlock?.length ?? 0) > 0;
+  const key = JSON.stringify([act, state.stages.map((x) => x.status), state.epics.map((e) => e.tickets.map((t) => t.status)), ceoTurn, selectedFloor, state.phase, setupOk]);
   if (key === lastKey) return; lastKey = key;
 
   let labels = '', bubbles = '';
@@ -264,7 +264,7 @@ export function renderDynamic(svg, meta, state, selectedFloor) {
 
     // 층 라벨 카드
     const working = act.role && act.floor === f.floor;
-    const chip = working ? ['작업 중', FLOOR_COLORS[f.floor]] : f.floor === 1 && ceoTurn ? ['대표 차례', '#ef4444'] : null;
+    const chip = working ? ['작업 중', FLOOR_COLORS[f.floor]] : f.floor === 1 && !setupOk ? ['설치 점검 필요', '#ef4444'] : f.floor === 1 && ceoTurn ? ['대표 차례', '#ef4444'] : null;
     const [lx, ly] = P(0, D, z + H * 0.45);
     labels += `<g class="flabel ${selectedFloor === f.floor ? 'on' : ''}" data-floor="${f.floor}" transform="translate(${(lx - 276).toFixed(1)},${(ly - 30).toFixed(1)})">
       <rect width="246" height="${chip ? 66 : 50}" rx="12" filter="url(#soft)"/>

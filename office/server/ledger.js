@@ -18,6 +18,7 @@ export function computeLedger(state, projectDir) {
   const assumptions = state.assumptions.filter((a) => !a.confirmed);
 
   const humanTurns = [];
+  if (state.setupBlock?.length) humanTurns.push({ kind: 'setup', id: 'setup', text: `설치 점검 미통과: ${state.setupBlock.join(', ')} — 고친 뒤 다시 점검하세요`, blocking: true });
   for (const q of state.questions) {
     if (q.status === 'open') humanTurns.push({ kind: 'question', id: q.id, text: q.q, blocking: true });
   }
