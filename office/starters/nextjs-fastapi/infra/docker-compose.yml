@@ -1,0 +1,17 @@
+# 로컬 통합 실행용 (선택). 사용: docker compose -f infra/docker-compose.yml up
+services:
+  api:
+    image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+    working_dir: /app
+    command: sh -c "uv sync --frozen && uv run uvicorn app.main:app --app-dir api --host 0.0.0.0 --port 8000"
+    volumes: [ "..:/app" ]
+    env_file: [ "../.env" ]
+    ports: [ "8000:8000" ]
+  web:
+    image: node:22-bookworm-slim
+    working_dir: /app/web
+    command: sh -c "npm install && npm run dev"
+    volumes: [ "..:/app" ]
+    environment: [ "API_URL=http://api:8000" ]
+    ports: [ "3000:3000" ]
+    depends_on: [ api ]

@@ -9,6 +9,7 @@ import { runAgent } from './engine.js';
 
 const AGENTS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'agents');
 const MAX_ATTEMPTS = 3;
+const readJson = (p) => { try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return null; } };
 
 export class Orchestrator {
   constructor(store, { engine = 'claude', model } = {}) {
@@ -18,6 +19,14 @@ export class Orchestrator {
     this.cwd = store.projectDir;
     this.busy = false;
     this.abort = null;
+    const starter = readJson(path.join(this.cwd, 'mwa-starter.json'));
+    if (starter?.commands?.test && !store.state.testCommand) store.update((s) => { s.testCommand = starter.commands.test; });
+  }
+
+  /** .bmad-loop/loop.json (없으면 기본값) */
+  get loop() {
+    const l = readJson(path.join(this.cwd, '.bmad-loop', 'loop.json')) ?? {};
+    return { maxAttempts: l.maxAttempts ?? MAX_ATTEMPTS, testTimeoutMin: l.testTimeoutMin ?? 10, models: l.models ?? {} };
   }
 
   get s() { return this.store.state; }
@@ -265,7 +274,7 @@ export class Orchestrator {
       `## 이번 작업: 에픽 다듬기 (${epicId} ${epic().title})`,
       '현재 코드와 문서를 확인하고 아래 티켓의 순서·범위를 조정하세요. 바꿀 필요가 없으면 tickets 를 null 로 두세요.',
       '```json\n' + JSON.stringify(epic().tickets.map(({ title, desc, acceptance }) => ({ title, desc, acceptance })), null, 1) + '\n```',
-      `결과 메모를 \`docs/planning/epics/${epicId}.md\` 에 남기세요.`,
+      `결과 메모를 \`_bmad-output/implementation-artifacts/${epicId}.md\` 에 남기세요.`,
     ]);
     try {
       const r = await this.#agent('sm', 'plan', prompt, { refine: true, title: '에픽 다듬기' });
@@ -293,7 +302,8 @@ export class Orchestrator {
     this.#git(['checkout', '-q', '-B', branch, 'main']);
     let feedback = get().feedback ?? '';
 
-    while (get().attempts < MAX_ATTEMPTS) {
+    const maxAttempts = this.loop.maxAttempts;
+    while (get().attempts < maxAttempts) {
       setT({ status: 'dev', attempts: get().attempts + 1 });
       const t = get();
       // 1) 4F 개발
@@ -364,7 +374,7 @@ export class Orchestrator {
     this.#git(['commit', '-q', '--allow-empty', '-m', `WIP ${ticketId} (실패)`]);
     this.#git(['checkout', '-q', 'main']);
     setT({ status: 'failed' });
-    this.log(`${ticketId} 재시도 ${MAX_ATTEMPTS}회 실패 — 대표 차례입니다(재시도/건너뛰기). 작업 내용은 ${branch} 브랜치에 남겼습니다.`, { level: 'error', floor: 3 });
+    this.log(`${ticketId} 재시도 ${maxAttempts}회 실패 — 대표 차례입니다(재시도/건너뛰기). 작업 내용은 ${branch} 브랜치에 남겼습니다.`, { level: 'error', floor: 3 });
   }
 
   async #wrapEpic(epicId) {
@@ -374,7 +384,7 @@ export class Orchestrator {
       await this.#agent('sm', 'plan', this.#prompt('sm', [
         `## 이번 작업: 에픽 마무리(회고) — ${epicId} ${e.title}`,
         `완료 티켓: ${e.tickets.map((t) => `${t.id}(${t.status})`).join(', ')}`,
-        `회고를 \`docs/planning/epics/${epicId}-retro.md\` 에 작성하세요.`,
+        `회고를 \`_bmad-output/implementation-artifacts/${epicId}-retro.md\` 에 작성하세요.`,
       ]), { title: '에픽 마무리', refine: true });
     } catch (err) {
       if (this.s.phase === 'paused') return;
@@ -416,7 +426,7 @@ export class Orchestrator {
     const runFile = path.join(this.store.dir, 'runs', `${Date.now()}-${role}.jsonl`);
     const floor = ROLES[role].floor;
     const r = await runAgent({
-      engine: this.engine, model: this.model, prompt, toolset, cwd: this.cwd, runFile,
+      engine: this.engine, model: this.model || this.loop.models[toolset === 'review' ? 'review' : toolset] || undefined, prompt, toolset, cwd: this.cwd, runFile,
       signal: this.abort.signal, mock: { ...mock, idea: this.s.idea },
       onLog: (line) => this.log(line, { floor, role, agent: true }),
     });
@@ -432,7 +442,7 @@ export class Orchestrator {
       let out = '';
       const add = (d) => { out += d; if (out.length > 20000) out = out.slice(-20000); };
       child.stdout.on('data', add); child.stderr.on('data', add);
-      const timer = setTimeout(() => child.kill('SIGKILL'), 10 * 60 * 1000);
+      const timer = setTimeout(() => child.kill('SIGKILL'), this.loop.testTimeoutMin * 60 * 1000);
       this.abort = new AbortController();
       this.abort.signal.addEventListener('abort', () => child.kill('SIGKILL'));
       child.on('close', (code) => { clearTimeout(timer); resolve({ ok: code === 0, tail: out.slice(-3000) }); });

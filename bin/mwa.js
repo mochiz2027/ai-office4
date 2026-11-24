@@ -12,24 +12,16 @@ const [cmd = 'help', ...rest] = process.argv.slice(2);
 const flag = (name, def) => { const i = rest.indexOf(`--${name}`); return i >= 0 ? (rest[i + 1] && !rest[i + 1].startsWith('--') ? rest[i + 1] : true) : def; };
 const projectDir = path.resolve(flag('dir', process.cwd()));
 
-const RULES = `# 프로젝트 규칙 (MWA 사무실)
-
-- 기획 문서는 docs/planning/ 에 있습니다. 구현 전에 PRD(03), UX(04), 아키텍처(05), 티켓(06)을 먼저 읽습니다.
-- 모든 문서와 커밋 메시지는 한국어로 작성합니다. 문서는 존댓말 보고체("~했습니다")를 씁니다.
-- 확실하지 않은 수치는 추측하지 말고 [확인필요]로 표시합니다.
-- 티켓 범위 밖의 변경은 하지 않습니다. 수용 기준마다 자동 테스트를 둡니다.
-- .mwa/ 폴더는 사무실(하네스) 상태이므로 수정하지 않습니다.
-`;
-
-function init({ quiet } = {}) {
-  fs.mkdirSync(path.join(projectDir, '.mwa'), { recursive: true });
-  fs.mkdirSync(path.join(projectDir, 'docs', 'planning'), { recursive: true });
-  for (const f of ['AGENTS.md', 'CLAUDE.md']) {
-    const p = path.join(projectDir, f);
-    if (!fs.existsSync(p)) { fs.writeFileSync(p, f === 'CLAUDE.md' ? '@AGENTS.md\n' : RULES); if (!quiet) console.log(`  + ${f}`); }
-    else if (!quiet) console.log(`  = ${f} (이미 있어 그대로 두었습니다)`);
+async function init({ quiet, starter } = {}) {
+  const { scaffold } = await import(path.join(ROOT, 'office/server/scaffold.js'));
+  const r = scaffold(projectDir, { starter, version: pkg.version });
+  if (!quiet) {
+    for (const f of r.created) console.log(`  + ${f}`);
+    if (r.skipped.length) console.log(`  = 이미 있어 그대로 둔 파일 ${r.skipped.length}개: ${r.skipped.slice(0, 8).join(', ')}${r.skipped.length > 8 ? ' …' : ''}`);
+    console.log(`\n초기화했습니다: ${projectDir}${starter ? `  (스타터: ${starter})` : ''}`);
+    if (starter) console.log('다음 단계: bash scripts/setup.sh  →  mwa up');
   }
-  if (!quiet) console.log(`초기화했습니다: ${projectDir}`);
+  return r;
 }
 
 function doctor() {
@@ -40,6 +32,8 @@ function doctor() {
   checks.push(['git', git.status === 0, git.stdout?.trim() || '설치 필요']);
   const cl = spawnSync('claude', ['--version'], { encoding: 'utf8' });
   checks.push(['Claude Code CLI (claude)', cl.status === 0, cl.status === 0 ? cl.stdout.trim() : 'npm i -g @anthropic-ai/claude-code 후 claude 로 로그인']);
+  const uv = spawnSync('uv', ['--version'], { encoding: 'utf8' });
+  checks.push(['uv (Python 스타터용, 선택)', true, uv.status === 0 ? uv.stdout.trim() : '없음 — curl -LsSf https://astral.sh/uv/install.sh | sh']);
   const isWin = process.platform === 'win32';
   const wsl = os.release().toLowerCase().includes('microsoft');
   checks.push(['실행 환경', !isWin, isWin ? 'Windows 는 WSL(Ubuntu) 안에서 실행을 권장합니다' : wsl ? 'WSL' : process.platform]);
@@ -54,7 +48,8 @@ function openBrowser(url) {
 }
 
 async function up() {
-  init({ quiet: true });
+  const st = flag('starter', null);
+  await init({ quiet: true, starter: st === true || st === 'none' ? null : st });
   let engine = flag('engine', 'claude');
   if (engine === 'claude' && spawnSync('claude', ['--version']).status !== 0) {
     console.log('⚠️  claude CLI 를 찾지 못해 mock(시연) 엔진으로 실행합니다. `mwa doctor` 로 확인하세요.');
@@ -82,9 +77,10 @@ function status() {
 const help = `mwa ${pkg.version} — 바이브코딩 사무실
 
 사용법:
-  mwa up [--mode auto|manual] [--engine claude|mock] [--port 4780] [--model <id>] [--no-open]
+  mwa up [--mode auto|manual] [--engine claude|mock] [--port 4780] [--model <id>] [--starter <이름>] [--no-open]
          현재 폴더에서 사무실 서버를 켜고 브라우저를 엽니다.
-  mwa init      AGENTS.md / CLAUDE.md / docs/planning 을 만듭니다.
+  mwa init [--starter nextjs-fastapi|none]
+         프로젝트 골격을 만듭니다(기본: Next.js + FastAPI 스타터). 있는 파일은 덮어쓰지 않습니다.
   mwa doctor    설치 상태(Node, git, Claude Code, WSL)를 점검합니다.
   mwa status    현재 진행 상황을 터미널에 보여 줍니다.
   mwa version   버전을 표시합니다.
@@ -92,7 +88,7 @@ const help = `mwa ${pkg.version} — 바이브코딩 사무실
 
 switch (cmd) {
   case 'up': await up(); break;
-  case 'init': init(); break;
+  case 'init': { const st = flag('starter', 'nextjs-fastapi'); await init({ starter: st === 'none' || st === true ? null : st }); break; }
   case 'doctor': process.exitCode = doctor() ? 0 : 1; break;
   case 'status': status(); break;
   case 'version': case '--version': case '-v': console.log(pkg.version); break;

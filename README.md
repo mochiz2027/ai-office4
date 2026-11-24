@@ -26,6 +26,8 @@ tar -xzf mwa-0.1.0.tar.gz && bash mwa-0.1.0/install.sh
 
 # 2) 실행
 mkdir my-project && cd my-project
+mwa init               # 폴더 골격 + Next.js/FastAPI 스타터 생성
+bash scripts/setup.sh  # uv · npm 의존성 설치 (uv 가 없으면 설치 안내가 나옵니다)
 mwa up                 # 자동 모드 (추천안대로 스스로 진행)
 mwa up --mode manual   # 수동 모드 (단계마다 승인)
 mwa up --engine mock   # Claude 없이 화면·흐름만 시연
@@ -49,16 +51,33 @@ Windows 는 WSL(Ubuntu) 안에서 실행하는 것을 권장합니다. `mwa doct
 ### 빌드 중 변경 요청
 빌드 중에 3F/4F 로 메시지를 보내면 **변경 요청 티켓**이 되어, 진행 중인 티켓이 끝난 뒤 현재 에픽에 끼워 넣어집니다.
 
-## 프로젝트 폴더에 생기는 것
+## 프로젝트 폴더 구조 (`mwa init`)
 
 ```
-AGENTS.md, CLAUDE.md          프로젝트 규칙 (에이전트가 먼저 읽음)
-docs/planning/01~07-*.md      기획 문서
-docs/planning/epics/          에픽 다듬기 메모, 회고
-.mwa/state.json               진행 상태 (서버를 껐다 켜도 이어서 진행)
-.mwa/log.jsonl, .mwa/runs/    로그, 에이전트 실행 원본(stream-json)
-git: main + mwa/T<n> 브랜치   티켓별 브랜치 → 리뷰 승인 시 main 에 병합
+my-project/
+├─ _bmad-output/
+│  ├─ planning-artifacts/      기획 문서 01~07 (아이디어·브리프·PRD·UX·아키텍처·티켓·점검)
+│  └─ implementation-artifacts/ 에픽 다듬기 메모, 회고
+├─ .bmad-loop/loop.json        루프 설정: 티켓당 최대 시도, 테스트 제한 시간, 단계별 모델
+├─ .claude/
+│  ├─ settings.json            .env 읽기·.mwa 수정 금지 규칙
+│  └─ skills/mwa-*/SKILL.md    역할별 스킬(분석가·PM·UX·아키텍트·PO·SM·개발·리뷰)
+├─ .mwa/                       사무실 진행 상태·로그 (git 제외)
+├─ api/                        FastAPI (app/main.py, routers/, tests/)
+├─ web/                        Next.js 15 App Router + TypeScript
+├─ infra/                      docker-compose 등 실행·배포 설정
+├─ scripts/                    setup.sh · dev.sh · test.sh
+├─ .env.example  .gitignore
+├─ AGENTS.md  CLAUDE.md        에이전트 공통 규칙
+├─ mwa-starter.json            스타터 정보(스택·명령·포트) — 진행기가 테스트 명령으로 사용
+├─ pyproject.toml  uv.lock     Python 의존성(uv)
+├─ skills-lock.json            설치된 스킬과 해시
+└─ README.md
 ```
+
+- `mwa init` 은 기본으로 Next.js + FastAPI 스타터를 만듭니다. 웹앱이 아니면 `mwa init --starter none` 으로 공통 골격만 만듭니다.
+- 이미 있는 파일은 덮어쓰지 않고 건너뜁니다.
+- 빌드 중 git: `main` + 티켓별 `mwa/T<n>` 브랜치 → 리뷰 승인 시 main 에 병합합니다.
 
 ## 개발
 

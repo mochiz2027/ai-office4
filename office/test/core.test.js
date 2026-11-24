@@ -55,3 +55,18 @@ test('빌드 중 3F 메시지는 변경 요청 티켓이 된다', async () => {
   const cr = store.state.epics.flatMap((e) => e.tickets).find((t) => t.cr);
   assert.ok(cr && cr.status === 'done');
 });
+
+test('scaffold: 스타터 골격을 만들고 기존 파일은 덮어쓰지 않는다', async () => {
+  const { scaffold } = await import('../server/scaffold.js');
+  const dir = tmp();
+  fs.writeFileSync(path.join(dir, 'AGENTS.md'), '내 규칙');
+  const r = scaffold(dir, { starter: 'nextjs-fastapi', version: 't' });
+  for (const f of ['api/app/main.py', 'web/package.json', 'uv.lock', 'mwa-starter.json', 'skills-lock.json', '.bmad-loop/loop.json', '.claude/skills/mwa-dev/SKILL.md'])
+    assert.ok(fs.existsSync(path.join(dir, f)), f);
+  assert.equal(fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'), '내 규칙');
+  assert.ok(r.skipped.includes('AGENTS.md'));
+  assert.ok(!fs.readFileSync(path.join(dir, 'web/app/page.tsx'), 'utf8').includes('{{name}}'));
+  const store = new Store(dir);
+  new Orchestrator(store, { engine: 'mock' });
+  assert.equal(store.state.testCommand, 'bash scripts/test.sh');
+});

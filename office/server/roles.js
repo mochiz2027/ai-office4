@@ -21,19 +21,19 @@ export const ROLES = {
 
 // 2F 기획 단계 (순서대로 진행). doc 은 프로젝트 기준 상대경로.
 export const PLANNING_STAGES = [
-  { id: 'idea', role: 'analyst', title: '아이디어 다듬기', doc: 'docs/planning/01-idea.md',
+  { id: 'idea', role: 'analyst', title: '아이디어 다듬기', doc: '_bmad-output/planning-artifacts/01-idea.md',
     task: '대표가 쓴 아이디어 한 단락을 다듬어 문제·대상 사용자·핵심 가치·성공 기준을 정리합니다.' },
-  { id: 'brief', role: 'analyst', title: '브리프 초안', doc: 'docs/planning/02-brief.md',
+  { id: 'brief', role: 'analyst', title: '브리프 초안', doc: '_bmad-output/planning-artifacts/02-brief.md',
     task: '프로덕트 브리프를 작성합니다: 배경, 목표, 범위 안/밖, 이해관계자, 리스크, 일정 가정.' },
-  { id: 'prd', role: 'pm', title: 'PRD 초안', doc: 'docs/planning/03-prd.md',
+  { id: 'prd', role: 'pm', title: 'PRD 초안', doc: '_bmad-output/planning-artifacts/03-prd.md',
     task: 'PRD 를 작성합니다: 기능 요구사항(FR-번호), 비기능 요구사항(NFR-번호), MVP 범위, 완료 조건(Definition of Done), 제외 범위.' },
-  { id: 'ux', role: 'ux', title: 'UX 문서(화면 설계)', doc: 'docs/planning/04-ux.md',
+  { id: 'ux', role: 'ux', title: 'UX 문서(화면 설계)', doc: '_bmad-output/planning-artifacts/04-ux.md',
     task: '화면 목록, 화면별 구성 요소, 사용자 흐름, 상태(빈/로딩/오류)를 텍스트 와이어프레임으로 작성합니다.' },
-  { id: 'arch', role: 'architect', title: '아키텍처 결정 · 스타터 추천', doc: 'docs/planning/05-architecture.md',
+  { id: 'arch', role: 'architect', title: '아키텍처 결정 · 스타터 추천', doc: '_bmad-output/planning-artifacts/05-architecture.md',
     task: '기술 스택, 폴더 구조, 데이터 모델, API 목록, 스타터 템플릿, 테스트 전략을 결정합니다. 반드시 JSON 의 testCommand 에 프로젝트 루트에서 실행할 테스트 명령을 넣으세요.' },
-  { id: 'tickets', role: 'po', title: '티켓 트리 쪼개기', doc: 'docs/planning/06-tickets.md',
+  { id: 'tickets', role: 'po', title: '티켓 트리 쪼개기', doc: '_bmad-output/planning-artifacts/06-tickets.md',
     task: '에픽 → 스토리(티켓) 트리로 쪼갭니다. 티켓마다 수용 기준을 붙이고, 첫 에픽은 프로젝트 골격·테스트 실행 환경부터 시작하세요. JSON 의 epics 필드에 트리를 넣으세요.' },
-  { id: 'gate', role: 'architect', title: '개발 직전 자동 점검', doc: 'docs/planning/07-readiness.md',
+  { id: 'gate', role: 'architect', title: '개발 직전 자동 점검', doc: '_bmad-output/planning-artifacts/07-readiness.md',
     task: '구현 준비 상태를 점검합니다: PRD↔UX↔아키텍처↔티켓 간 누락/모순, 테스트 명령 실행 가능성. JSON 의 verdict 에 PASS / CONCERNS / FAIL 중 하나를 넣으세요.' },
 ];
 

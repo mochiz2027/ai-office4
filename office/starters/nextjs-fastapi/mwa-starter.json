@@ -1,0 +1,16 @@
+{
+  "starter": "nextjs-fastapi",
+  "version": "1",
+  "name": "{{name}}",
+  "stack": {
+    "web": "Next.js 15 (App Router, TypeScript) — web/",
+    "api": "FastAPI + Pydantic Settings (Python 3.11+, uv) — api/",
+    "infra": "docker-compose (선택) — infra/"
+  },
+  "commands": {
+    "setup": "bash scripts/setup.sh",
+    "dev": "bash scripts/dev.sh",
+    "test": "bash scripts/test.sh"
+  },
+  "ports": { "web": 3000, "api": 8000 }
+}

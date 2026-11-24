@@ -131,7 +131,7 @@ function renderLog() {
 
 function renderInspect() {
   const sel = $('#docSel'), cur = sel.value;
-  const docs = [...SNAP.state.stages.map((s) => s.doc), 'AGENTS.md', 'CLAUDE.md', ...SNAP.state.epics.flatMap((e) => [`docs/planning/epics/${e.id}.md`, `docs/planning/epics/${e.id}-retro.md`])];
+  const docs = [...SNAP.state.stages.map((s) => s.doc), 'AGENTS.md', 'CLAUDE.md', ...SNAP.state.epics.flatMap((e) => [`_bmad-output/implementation-artifacts/${e.id}.md`, `_bmad-output/implementation-artifacts/${e.id}-retro.md`])];
   sel.innerHTML = docs.map((d) => `<option ${d === cur ? 'selected' : ''}>${esc(d)}</option>`).join('');
   $('#rawState').textContent = JSON.stringify(SNAP.state, null, 2);
 }
