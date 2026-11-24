@@ -1,0 +1,14 @@
+{
+  "name": "mwa",
+  "version": "0.1.0",
+  "description": "MWA 스타일 바이브코딩 사무실 — BMAD 역할 기반 AI 개발 하네스 (원본과 별개인 독자 구현)",
+  "type": "module",
+  "bin": { "mwa": "bin/mwa.js" },
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node --test office/test/*.test.js",
+    "pack": "bash scripts/pack.sh"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}

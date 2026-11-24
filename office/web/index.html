@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MWA 사무실</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="top">
+    <div class="brand"><span class="logo">▦</span> <b>MWA</b> 사무실</div>
+    <div class="status" id="status">연결 중…</div>
+    <div class="controls">
+      <div class="seg" id="modeSeg" role="group" aria-label="진행 모드">
+        <button data-mode="auto">자동</button><button data-mode="manual">수동</button>
+      </div>
+      <button class="btn" id="pauseBtn">일시정지</button>
+      <span class="cost" id="cost"></span>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="stage">
+      <div class="flow-label">일의 흐름 ↑</div>
+      <svg id="building" viewBox="-430 -470 900 640" aria-label="사무실 건물"></svg>
+      <nav class="floor-nav" id="floorNav"></nav>
+    </section>
+
+    <aside class="panel">
+      <div class="tabs" role="tablist">
+        <button data-tab="detail" class="on">상세</button>
+        <button data-tab="progress">진행</button>
+        <button data-tab="log">로그</button>
+        <button data-tab="inspect">검사기</button>
+      </div>
+
+      <div class="tab" id="tab-detail">
+        <div id="floorInfo"></div>
+        <div class="feed" id="feed"></div>
+        <div class="composer">
+          <label for="msg" id="msgLabel">메시지</label>
+          <textarea id="msg" rows="3" placeholder=""></textarea>
+          <div class="row"><small>Ctrl+Enter(맥은 ⌘+Enter)로 보내기</small><button class="btn primary" id="sendBtn">보내기</button></div>
+        </div>
+        <div id="ledger"></div>
+      </div>
+
+      <div class="tab hidden" id="tab-progress"></div>
+      <div class="tab hidden" id="tab-log">
+        <div class="row"><select id="logFloor"><option value="">전체 층</option><option value="1">1F</option><option value="2">2F</option><option value="3">3F</option><option value="4">4F</option></select></div>
+        <div class="log" id="logList"></div>
+      </div>
+      <div class="tab hidden" id="tab-inspect">
+        <div class="row"><select id="docSel"></select><button class="btn" id="docOpen">문서 열기</button></div>
+        <pre class="doc" id="docView">기획 문서를 골라 열어 보세요.</pre>
+        <details><summary>상태 원본(JSON)</summary><pre class="doc" id="rawState"></pre></details>
+      </div>
+    </aside>
+  </main>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

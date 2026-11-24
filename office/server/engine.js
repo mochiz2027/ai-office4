@@ -1,0 +1,146 @@
+// 에이전트 실행 엔진.
+//  - claude: Claude Code CLI 의 headless 모드(`claude -p`)를 호출합니다. 로그인된 구독 계정을 쓰므로 API 키가 없어도 됩니다.
+//  - mock  : Claude 없이 화면·흐름만 시연하는 가짜 엔진입니다.
+import { spawn, spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+
+export function hasClaude() {
+  const r = spawnSync('claude', ['--version'], { encoding: 'utf8' });
+  return r.status === 0 ? r.stdout.trim() : null;
+}
+
+/** 응답 텍스트 맨 끝의 ```json 블록을 파싱합니다. */
+export function parseContract(text) {
+  if (!text) return {};
+  const blocks = [...text.matchAll(/```json\s*([\s\S]*?)```/g)];
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    try { return JSON.parse(blocks[i][1]); } catch { /* 다음 후보 */ }
+  }
+  const brace = text.lastIndexOf('\n{');
+  if (brace >= 0) { try { return JSON.parse(text.slice(brace)); } catch { /* 없음 */ } }
+  return {};
+}
+
+const TOOLSETS = {
+  plan: ['Read', 'Write', 'Edit', 'Glob', 'Grep'],
+  review: ['Read', 'Glob', 'Grep', 'Bash(git diff:*)', 'Bash(git status:*)', 'Bash(git log:*)'],
+  dev: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash'],
+};
+
+/**
+ * @param {object} o
+ * @param {'claude'|'mock'} o.engine
+ * @param {string} o.prompt
+ * @param {'plan'|'review'|'dev'} o.toolset
+ * @param {string} o.cwd
+ * @param {(line:string)=>void} o.onLog
+ * @param {object} o.mock  mock 엔진용 힌트 { stage, ticket, doc }
+ * @param {AbortSignal} o.signal
+ * @param {string} [o.model]
+ */
+export function runAgent(o) {
+  return o.engine === 'mock' ? runMock(o) : runClaude(o);
+}
+
+function runClaude({ prompt, toolset, cwd, onLog, signal, model, runFile }) {
+  return new Promise((resolve, reject) => {
+    const args = ['-p', '--output-format', 'stream-json', '--verbose',
+      '--permission-mode', 'acceptEdits', '--allowedTools', TOOLSETS[toolset].join(',')];
+    if (model) args.push('--model', model);
+    const child = spawn('claude', args, { cwd, env: process.env, stdio: ['pipe', 'pipe', 'pipe'] });
+    const out = runFile ? fs.createWriteStream(runFile) : null;
+    let buf = '', result = '', cost = 0, lastText = '';
+    const onAbort = () => child.kill('SIGTERM');
+    signal?.addEventListener('abort', onAbort, { once: true });
+
+    child.stdout.on('data', (d) => {
+      out?.write(d);
+      buf += d;
+      let i;
+      while ((i = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, i); buf = buf.slice(i + 1);
+        if (!line.trim()) continue;
+        let ev; try { ev = JSON.parse(line); } catch { continue; }
+        if (ev.type === 'assistant') {
+          for (const c of ev.message?.content ?? []) {
+            if (c.type === 'text' && c.text.trim()) { lastText = c.text; onLog(c.text.trim().slice(0, 400)); }
+            if (c.type === 'tool_use') onLog(`🔧 ${c.name} ${summarizeInput(c.input)}`);
+          }
+        } else if (ev.type === 'result') {
+          result = ev.result ?? lastText; cost = ev.total_cost_usd ?? 0;
+          if (ev.is_error) onLog(`⚠️ 결과 오류: ${ev.subtype ?? ''}`);
+        }
+      }
+    });
+    let err = '';
+    child.stderr.on('data', (d) => { err += d; });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      out?.end();
+      signal?.removeEventListener('abort', onAbort);
+      if (signal?.aborted) return reject(new Error('중단되었습니다'));
+      if (code !== 0 && !result) return reject(new Error(`claude 종료 코드 ${code}: ${err.slice(-500)}`));
+      resolve({ text: result || lastText, cost, contract: parseContract(result || lastText) });
+    });
+    child.stdin.end(prompt);
+  });
+}
+
+function summarizeInput(input = {}) {
+  const v = input.file_path ?? input.command ?? input.pattern ?? input.path ?? '';
+  return String(v).slice(0, 160);
+}
+
+// ---------------- mock ----------------
+const sleep = (ms, signal) => new Promise((res, rej) => {
+  const t = setTimeout(res, ms);
+  signal?.addEventListener('abort', () => { clearTimeout(t); rej(new Error('중단되었습니다')); }, { once: true });
+});
+
+async function runMock({ cwd, onLog, signal, mock = {} }) {
+  const delay = Number(process.env.MWA_MOCK_DELAY ?? 600);
+  onLog(`(mock) ${mock.title ?? '작업'} 시작`);
+  await sleep(delay, signal);
+  const write = (rel, body) => {
+    const p = path.join(cwd, rel);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, body);
+    onLog(`🔧 Write ${rel}`);
+  };
+  const contract = { summary: `(mock) ${mock.title} 을(를) 완료했습니다.`, questions: [], assumptions: [] };
+
+  if (mock.stage) {
+    write(mock.doc, `# ${mock.title}\n\n(mock 엔진이 만든 예시 문서입니다.)\n\n## 아이디어\n${mock.idea}\n`);
+    if (mock.stage === 'prd') {
+      contract.questions.push({ q: 'MVP 에 로그인 기능을 포함할까요?', options: ['포함', '제외(다음 에픽)'], recommended: 1, why: 'MVP 범위를 줄이기 위해서입니다.' });
+      contract.assumptions.push('사용자는 PC 브라우저로 접속한다고 가정했습니다.');
+    }
+    if (mock.stage === 'arch') {
+      contract.testCommand = 'node --test';
+      contract.questions.push({ q: '백엔드 스택을 무엇으로 할까요?', options: ['Next.js 단독', 'Next.js + FastAPI'], recommended: 1, why: '데이터 처리 요구가 있어 분리가 유리합니다.' });
+    }
+    if (mock.stage === 'tickets') {
+      contract.epics = [
+        { title: '프로젝트 골격', tickets: [
+          { title: '저장소 골격과 테스트 환경', desc: '폴더 구조와 테스트 러너 설정', acceptance: ['테스트 명령이 통과한다'] },
+          { title: '홈 화면', desc: '첫 화면', acceptance: ['홈 화면이 렌더링된다'] } ] },
+        { title: '핵심 기능', tickets: [
+          { title: '목록 조회', desc: '데이터 목록', acceptance: ['목록이 보인다'] } ] },
+      ];
+    }
+    if (mock.stage === 'gate') contract.verdict = 'PASS';
+  } else if (mock.ticket) {
+    const slug = mock.ticket.id.toLowerCase();
+    write(`src/${slug}.js`, `// ${mock.ticket.title}\nexport const done = true;\n`);
+    write(`test/${slug}.test.js`, `import test from 'node:test';\nimport assert from 'node:assert';\nimport { done } from '../src/${slug}.js';\ntest('${slug}', () => assert.ok(done));\n`);
+  } else if (mock.review) {
+    contract.verdict = 'APPROVE';
+    contract.feedback = [];
+  } else if (mock.refine) {
+    contract.tickets = null; // 변경 없음
+  }
+  await sleep(delay, signal);
+  onLog(`(mock) 완료`);
+  return { text: '```json\n' + JSON.stringify(contract) + '\n```', cost: 0, contract };
+}

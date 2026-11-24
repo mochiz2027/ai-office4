@@ -1,0 +1,474 @@
+// 진행기: 기획 → 에픽 다듬기 → 빌드(개발→테스트→리뷰→main) → 에픽 마무리 → 다음 에픽.
+// 자동 모드는 추천안대로 스스로 진행하고, 수동 모드는 단계마다 사람에게 묻습니다.
+import fs from 'node:fs';
+import path from 'node:path';
+import { spawn, spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { PLANNING_STAGES, ROLES, stageById } from './roles.js';
+import { runAgent } from './engine.js';
+
+const AGENTS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'agents');
+const MAX_ATTEMPTS = 3;
+
+export class Orchestrator {
+  constructor(store, { engine = 'claude', model } = {}) {
+    this.store = store;
+    this.engine = engine;
+    this.model = model;
+    this.cwd = store.projectDir;
+    this.busy = false;
+    this.abort = null;
+  }
+
+  get s() { return this.store.state; }
+  log(text, extra = {}) { return this.store.log({ text, ...extra }); }
+
+  // ---------- 사람 쪽 입력 ----------
+  postMessage(floor, text) {
+    text = String(text ?? '').trim();
+    if (!text) return;
+    this.store.update((s) => s.messages.push({ floor, from: 'ceo', text, ts: new Date().toISOString() }));
+    this.log(`대표 → ${floor}F: ${text}`, { floor, role: 'ceo' });
+
+    if (this.s.phase === 'idle' && floor === 2) {
+      this.store.update((s) => { s.idea = text; s.phase = 'planning'; });
+      this.log('2F 기획 세션을 시작했습니다.', { floor: 2 });
+    } else if (['building', 'paused'].includes(this.s.phase) && floor >= 3) {
+      this.store.update((s) => s.changeRequests.push({ id: this.store.nextId('CR', s.changeRequests), text, status: 'pending' }));
+      this.log('변경 요청으로 접수했습니다. 진행 중인 티켓이 끝나면 반영합니다.', { floor });
+    }
+    this.kick();
+  }
+
+  setMode(mode) {
+    if (!['auto', 'manual'].includes(mode)) return;
+    this.store.update((s) => {
+      s.mode = mode;
+      if (mode === 'auto') { // 자동 전환 시 열린 질문은 추천안으로, 승인 대기는 통과 처리
+        for (const q of s.questions) if (q.status === 'open') Object.assign(q, { status: 'auto', answer: q.options?.[q.recommended] ?? '추천안' });
+        s.approvals = [];
+      }
+    });
+    this.log(`모드를 ${mode === 'auto' ? '자동' : '수동'}으로 바꿨습니다.`);
+    this.kick();
+  }
+
+  answer(id, answer) {
+    this.store.update((s) => {
+      const q = s.questions.find((x) => x.id === id);
+      if (q) Object.assign(q, { answer, status: 'answered' });
+    });
+    this.log(`결정: ${id} → ${answer}`, { role: 'ceo' });
+    this.kick();
+  }
+
+  confirmAssumption(id, ok = true) {
+    this.store.update((s) => {
+      const a = s.assumptions.find((x) => x.id === id);
+      if (a) { a.confirmed = true; a.rejected = !ok; }
+    });
+    this.kick();
+  }
+
+  /** 승인 대기(수동 모드) 처리. action: approve | redo */
+  approve(id, action = 'approve', note = '') {
+    const a = this.s.approvals.find((x) => x.id === id);
+    if (!a) return;
+    this.store.update((s) => {
+      s.approvals = s.approvals.filter((x) => x.id !== id);
+      if (action === 'redo' && a.kind === 'stage') {
+        const st = s.stages.find((x) => x.id === a.ref);
+        Object.assign(st, { status: 'todo', feedback: note });
+      }
+      if (a.kind === 'build' && action === 'approve') s.phase = 'building';
+    });
+    this.log(`승인: ${a.text} → ${action}`, { role: 'ceo' });
+    this.kick();
+  }
+
+  retry(kind, id) {
+    this.store.update((s) => {
+      if (kind === 'stage') { const st = s.stages.find((x) => x.id === id); if (st) st.status = 'todo'; }
+      if (kind === 'ticket') for (const e of s.epics) for (const t of e.tickets) if (t.id === id) Object.assign(t, { status: 'todo', attempts: 0 });
+      if (s.phase === 'error') s.phase = s.epics.length ? 'building' : 'planning';
+    });
+    this.kick();
+  }
+
+  skipTicket(id) {
+    this.store.update((s) => { for (const e of s.epics) for (const t of e.tickets) if (t.id === id) t.status = 'skipped'; });
+    this.kick();
+  }
+
+  pause() {
+    if (!['planning', 'building'].includes(this.s.phase)) return;
+    this.store.update((s) => { s.resumePhase = s.phase; s.phase = 'paused'; });
+    this.abort?.abort();
+    this.log('일시정지했습니다. 진행 중이던 작업은 재개 시 처음부터 다시 합니다.');
+  }
+
+  resume() {
+    if (this.s.phase !== 'paused') return;
+    this.store.update((s) => { s.phase = s.resumePhase ?? 'planning'; });
+    this.log('재개했습니다.');
+    this.kick();
+  }
+
+  // ---------- 루프 ----------
+  kick() {
+    if (this.busy) return;
+    this.busy = true;
+    this.#loop().catch((e) => {
+      this.log(`진행기 오류: ${e.message}`, { level: 'error' });
+    }).finally(() => { this.busy = false; this.#setActivity(null); });
+  }
+
+  isBlocked() {
+    const s = this.s;
+    return s.approvals.length > 0 || s.questions.some((q) => q.status === 'open');
+  }
+
+  async #loop() {
+    while (true) {
+      const s = this.s;
+      if (!['planning', 'building'].includes(s.phase) || this.isBlocked()) return;
+      const did = s.phase === 'planning' ? await this.#stepPlanning() : await this.#stepBuilding();
+      if (!did) return;
+    }
+  }
+
+  // ---------- 기획 ----------
+  async #stepPlanning() {
+    const st = this.s.stages.find((x) => x.status !== 'done');
+    if (!st) return this.#finishPlanning();
+    if (st.status === 'failed') return false;
+    await this.#runStage(st.id);
+    return true;
+  }
+
+  #finishPlanning() {
+    const gate = this.s.stages.find((x) => x.id === 'gate');
+    if (gate.verdict === 'FAIL') {
+      this.store.update((s) => s.approvals.push({ id: this.store.nextId('A', s.approvals), kind: 'stage', ref: 'gate',
+        text: '개발 직전 점검이 FAIL 입니다. 문서를 고친 뒤 점검을 다시 하거나(재작성) 그대로 진행(승인)하세요.' }));
+      // 승인하면 다음 루프에서 다시 여기로 오므로 verdict 를 덮어 둡니다.
+      this.store.update((s) => { s.stages.find((x) => x.id === 'gate').verdict = 'FAIL-ACK'; });
+      return false;
+    }
+    this.#ensureGit();
+    if (this.s.mode === 'manual') {
+      this.store.update((s) => { s.phase = 'ready'; s.approvals.push({ id: this.store.nextId('A', s.approvals), kind: 'build', ref: null, text: '기획이 끝났습니다. 빌드를 시작할까요?' }); });
+      return false;
+    }
+    this.store.update((s) => { s.phase = 'building'; });
+    this.log('기획을 마치고 빌드를 시작합니다.', { floor: 3 });
+    return true;
+  }
+
+  async #runStage(id) {
+    const def = stageById(id);
+    this.store.update((s) => { Object.assign(s.stages.find((x) => x.id === id), { status: 'running', startedAt: new Date().toISOString() }); });
+    this.#setActivity({ floor: 2, role: def.role, label: def.title });
+    this.log(`${ROLES[def.role].name}: ${def.title} 시작`, { floor: 2, role: def.role });
+    const stage = this.s.stages.find((x) => x.id === id);
+    const prompt = this.#prompt(def.role, [
+      `## 이번 작업: ${def.title}`, def.task,
+      `결과 문서를 \`${def.doc}\` 에 작성(또는 덮어쓰기)하세요.`,
+      stage.feedback ? `## 대표의 재작성 요청\n${stage.feedback}` : '',
+    ]);
+    try {
+      const r = await this.#agent(def.role, 'plan', prompt, { stage: id, title: def.title, doc: def.doc, idea: this.s.idea });
+      const c = r.contract;
+      this.#absorb(c, id, 2);
+      this.store.update((s) => {
+        const x = s.stages.find((y) => y.id === id);
+        Object.assign(x, { status: 'done', summary: c.summary ?? '', finishedAt: new Date().toISOString(), feedback: '' });
+        if (id === 'arch' && c.testCommand) s.testCommand = c.testCommand;
+        if (id === 'gate') x.verdict = c.verdict ?? 'CONCERNS';
+        if (id === 'tickets' && Array.isArray(c.epics)) s.epics = this.#mkEpics(c.epics);
+        if (s.mode === 'manual') s.approvals.push({ id: this.store.nextId('A', s.approvals), kind: 'stage', ref: id, text: `${def.title} 완료 — 확인 후 다음 단계로 넘어갈까요?` });
+      });
+      if (id === 'tickets' && !this.s.epics.length) this.#failStage(id, '티켓 트리(JSON epics)를 받지 못했습니다');
+      this.log(`${def.title} 완료: ${c.summary ?? ''}`, { floor: 2, role: def.role });
+    } catch (e) {
+      if (this.s.phase === 'paused') { this.store.update((s) => { s.stages.find((x) => x.id === id).status = 'todo'; }); return; }
+      this.#failStage(id, e.message);
+    }
+  }
+
+  #failStage(id, msg) {
+    this.store.update((s) => { Object.assign(s.stages.find((x) => x.id === id), { status: 'failed', error: msg }); });
+    this.log(`단계 실패(${id}): ${msg}`, { level: 'error', floor: 2 });
+  }
+
+  #mkEpics(raw) {
+    let n = 0;
+    return raw.map((e, i) => ({
+      id: `E${i + 1}`, title: e.title, status: 'todo',
+      tickets: (e.tickets ?? []).map((t) => ({ id: `T${++n}`, title: t.title, desc: t.desc ?? '', acceptance: t.acceptance ?? [], status: 'todo', attempts: 0 })),
+    }));
+  }
+
+  /** 에이전트 JSON 의 질문·가정을 상태에 흡수합니다. */
+  #absorb(c, source, floor) {
+    this.store.update((s) => {
+      for (const q of c.questions ?? []) {
+        const id = this.store.nextId('Q', s.questions);
+        const rec = q.options?.[q.recommended ?? 0] ?? '추천안';
+        const item = { id, source, floor, q: q.q, options: q.options ?? [], recommended: q.recommended ?? 0, why: q.why ?? '', status: 'open', answer: null };
+        if (s.mode === 'auto') Object.assign(item, { status: 'auto', answer: rec });
+        s.questions.push(item);
+      }
+      for (const a of c.assumptions ?? []) s.assumptions.push({ id: this.store.nextId('S', s.assumptions), text: a, source, confirmed: false });
+    });
+    for (const q of c.questions ?? []) this.log(`질문: ${q.q} (추천: ${q.options?.[q.recommended ?? 0] ?? '-'})`, { floor });
+  }
+
+  // ---------- 빌드 ----------
+  async #stepBuilding() {
+    const s = this.s;
+    if (s.changeRequests.some((c) => c.status === 'pending')) { this.#applyChangeRequests(); return true; }
+    const epic = s.epics.find((e) => e.status !== 'done');
+    if (!epic) {
+      this.store.update((x) => { x.phase = 'done'; });
+      this.log('모든 에픽을 마쳤습니다. 🎉', { floor: 1 });
+      return false;
+    }
+    this.store.update((x) => { x.currentEpic = epic.id; });
+    if (epic.status === 'todo') { await this.#refineEpic(epic.id); return true; }
+    const t = epic.tickets.find((x) => !['done', 'skipped'].includes(x.status));
+    if (t?.status === 'failed') return false;
+    if (t) { await this.#runTicket(epic.id, t.id); return true; }
+    await this.#wrapEpic(epic.id);
+    return true;
+  }
+
+  #applyChangeRequests() {
+    this.store.update((s) => {
+      const epic = s.epics.find((e) => e.status !== 'done') ?? (s.epics.push({ id: `E${s.epics.length + 1}`, title: '변경 요청', status: 'active', tickets: [] }), s.epics.at(-1));
+      let n = s.epics.reduce((m, e) => m + e.tickets.length, 0);
+      for (const c of s.changeRequests.filter((x) => x.status === 'pending')) {
+        const idx = epic.tickets.findIndex((t) => t.status === 'todo');
+        const t = { id: `T${++n}`, title: `[변경] ${c.text.slice(0, 40)}`, desc: c.text, acceptance: ['대표의 변경 요청이 반영되었다'], status: 'todo', attempts: 0, cr: c.id };
+        idx < 0 ? epic.tickets.push(t) : epic.tickets.splice(idx, 0, t);
+        c.status = 'ticketed'; c.ticket = t.id;
+      }
+    });
+    this.log('변경 요청을 티켓으로 만들어 현재 에픽에 끼워 넣었습니다.', { floor: 3, role: 'sm' });
+  }
+
+  async #refineEpic(epicId) {
+    const epic = () => this.s.epics.find((e) => e.id === epicId);
+    this.#setActivity({ floor: 3, role: 'sm', label: `${epicId} 에픽 다듬기` });
+    this.log(`스크럼 마스터: ${epicId} ${epic().title} 다듬기`, { floor: 3, role: 'sm' });
+    const prompt = this.#prompt('sm', [
+      `## 이번 작업: 에픽 다듬기 (${epicId} ${epic().title})`,
+      '현재 코드와 문서를 확인하고 아래 티켓의 순서·범위를 조정하세요. 바꿀 필요가 없으면 tickets 를 null 로 두세요.',
+      '```json\n' + JSON.stringify(epic().tickets.map(({ title, desc, acceptance }) => ({ title, desc, acceptance })), null, 1) + '\n```',
+      `결과 메모를 \`docs/planning/epics/${epicId}.md\` 에 남기세요.`,
+    ]);
+    try {
+      const r = await this.#agent('sm', 'plan', prompt, { refine: true, title: '에픽 다듬기' });
+      this.#absorb(r.contract, epicId, 3);
+      this.store.update((s) => {
+        const e = s.epics.find((x) => x.id === epicId);
+        if (Array.isArray(r.contract.tickets) && r.contract.tickets.length) {
+          const base = e.tickets[0] ? Number(e.tickets[0].id.slice(1)) : 1;
+          e.tickets = r.contract.tickets.map((t, i) => ({ id: `T${base}${i ? '-' + i : ''}`, title: t.title, desc: t.desc ?? '', acceptance: t.acceptance ?? [], status: 'todo', attempts: 0 }));
+          e.tickets.forEach((t, i) => { t.id = i === 0 ? `T${base}` : `T${base}.${i}`; });
+        }
+        e.status = 'active';
+      });
+    } catch (e) {
+      if (this.s.phase === 'paused') return;
+      this.log(`에픽 다듬기 실패, 원래 티켓으로 진행합니다: ${e.message}`, { level: 'warn', floor: 3 });
+      this.store.update((s) => { s.epics.find((x) => x.id === epicId).status = 'active'; });
+    }
+  }
+
+  async #runTicket(epicId, ticketId) {
+    const get = () => this.s.epics.find((e) => e.id === epicId).tickets.find((t) => t.id === ticketId);
+    const setT = (patch) => this.store.update(() => Object.assign(get(), patch));
+    const branch = `mwa/${ticketId}`;
+    this.#git(['checkout', '-q', '-B', branch, 'main']);
+    let feedback = get().feedback ?? '';
+
+    while (get().attempts < MAX_ATTEMPTS) {
+      setT({ status: 'dev', attempts: get().attempts + 1 });
+      const t = get();
+      // 1) 4F 개발
+      this.#setActivity({ floor: 4, role: 'dev', label: `${t.id} 구현 (${t.attempts}회차)`, ticket: t.id });
+      this.log(`개발자: ${t.id} ${t.title} 구현 ${t.attempts}회차`, { floor: 4, role: 'dev' });
+      try {
+        const r = await this.#agent('dev', 'dev', this.#prompt('dev', [
+          `## 이번 티켓: ${t.id} ${t.title}`, t.desc,
+          `### 수용 기준\n${t.acceptance.map((a) => `- ${a}`).join('\n')}`,
+          `### 테스트 명령\n\`${this.s.testCommand || '(아직 없음 — 아키텍처 문서를 보고 정해 JSON testCommand 로 알려 주세요)'}\``,
+          feedback ? `### 이전 시도에서 받은 피드백 (반드시 해결)\n${feedback}` : '',
+        ]), { ticket: t, title: `${t.id} 구현` });
+        this.#absorb(r.contract, t.id, 4);
+        if (r.contract.testCommand && !this.s.testCommand) this.store.update((s) => { s.testCommand = r.contract.testCommand; });
+      } catch (e) {
+        if (this.s.phase === 'paused') { setT({ status: 'todo', attempts: get().attempts - 1 }); return; }
+        feedback = `에이전트 실행 오류: ${e.message}`; setT({ feedback }); continue;
+      }
+
+      // 2) 3F 자동 테스트
+      setT({ status: 'test' });
+      this.#setActivity({ floor: 3, role: 'qa', label: `${t.id} 자동 테스트`, ticket: t.id });
+      const test = await this.#runTests();
+      setT({ lastTest: { ok: test.ok, tail: test.tail } });
+      if (!test.ok) {
+        feedback = `테스트 실패 (\`${this.s.testCommand}\`):\n${test.tail}`;
+        setT({ feedback });
+        this.log(`${t.id} 테스트 실패 → 개발실로 되돌립니다`, { floor: 3, role: 'qa', level: 'warn' });
+        continue;
+      }
+      this.log(`${t.id} 테스트 통과`, { floor: 3, role: 'qa' });
+
+      // 3) 3F 리뷰
+      setT({ status: 'review' });
+      this.#setActivity({ floor: 3, role: 'reviewer', label: `${t.id} 코드 리뷰`, ticket: t.id });
+      this.#git(['add', '-A']);
+      let verdict = 'APPROVE', fb = [];
+      try {
+        const r = await this.#agent('reviewer', 'review', this.#prompt('reviewer', [
+          `## 리뷰 대상: ${t.id} ${t.title}`, `### 수용 기준\n${t.acceptance.map((a) => `- ${a}`).join('\n')}`,
+          '`git diff --cached main` 으로 변경분을 확인하세요.',
+        ]), { review: true, title: `${t.id} 리뷰` });
+        verdict = r.contract.verdict ?? 'APPROVE';
+        fb = r.contract.feedback ?? [];
+      } catch (e) {
+        if (this.s.phase === 'paused') { setT({ status: 'todo' }); return; }
+        this.log(`리뷰 실행 오류, 테스트 통과 기준으로 진행합니다: ${e.message}`, { level: 'warn', floor: 3 });
+      }
+      if (verdict !== 'APPROVE') {
+        feedback = `리뷰 요청 사항:\n${fb.map((x) => `- ${typeof x === 'string' ? x : JSON.stringify(x)}`).join('\n')}`;
+        setT({ feedback });
+        this.log(`${t.id} 리뷰 CHANGES → 개발실로 되돌립니다`, { floor: 3, role: 'reviewer', level: 'warn' });
+        continue;
+      }
+
+      // 4) main 반영
+      this.#git(['add', '-A']);
+      this.#git(['commit', '-q', '--allow-empty', '-m', `${t.id}: ${t.title}`]);
+      this.#git(['checkout', '-q', 'main']);
+      const m = this.#git(['merge', '-q', '--no-ff', branch, '-m', `merge ${branch}`]);
+      if (m.status !== 0) { this.#git(['merge', '--abort']); feedback = `main 병합 충돌: ${m.stderr}`; setT({ feedback }); this.#git(['checkout', '-q', branch]); continue; }
+      setT({ status: 'done', feedback: '', doneAt: new Date().toISOString() });
+      this.log(`${t.id} 리뷰 승인 → main 반영 완료`, { floor: 3, role: 'reviewer' });
+      return;
+    }
+    // 재시도 한도 초과
+    this.#git(['add', '-A']);
+    this.#git(['commit', '-q', '--allow-empty', '-m', `WIP ${ticketId} (실패)`]);
+    this.#git(['checkout', '-q', 'main']);
+    setT({ status: 'failed' });
+    this.log(`${ticketId} 재시도 ${MAX_ATTEMPTS}회 실패 — 대표 차례입니다(재시도/건너뛰기). 작업 내용은 ${branch} 브랜치에 남겼습니다.`, { level: 'error', floor: 3 });
+  }
+
+  async #wrapEpic(epicId) {
+    const e = this.s.epics.find((x) => x.id === epicId);
+    this.#setActivity({ floor: 3, role: 'sm', label: `${epicId} 에픽 마무리` });
+    try {
+      await this.#agent('sm', 'plan', this.#prompt('sm', [
+        `## 이번 작업: 에픽 마무리(회고) — ${epicId} ${e.title}`,
+        `완료 티켓: ${e.tickets.map((t) => `${t.id}(${t.status})`).join(', ')}`,
+        `회고를 \`docs/planning/epics/${epicId}-retro.md\` 에 작성하세요.`,
+      ]), { title: '에픽 마무리', refine: true });
+    } catch (err) {
+      if (this.s.phase === 'paused') return;
+      this.log(`회고 작성 실패(진행에는 영향 없음): ${err.message}`, { level: 'warn' });
+    }
+    this.#git(['add', '-A']);
+    this.#git(['commit', '-q', '--allow-empty', '-m', `${epicId} 회고`]);
+    this.store.update((s) => {
+      s.epics.find((x) => x.id === epicId).status = 'done';
+      if (s.mode === 'manual' && s.epics.some((x) => x.status !== 'done')) {
+        s.approvals.push({ id: this.store.nextId('A', s.approvals), kind: 'epic', ref: epicId, text: `${epicId} 에픽을 마쳤습니다. 다음 에픽으로 넘어갈까요?` });
+      }
+    });
+    this.log(`${epicId} 에픽 마무리 완료`, { floor: 3, role: 'sm' });
+  }
+
+  // ---------- 공용 ----------
+  #prompt(role, parts) {
+    const s = this.s;
+    const rolePrompt = fs.readFileSync(path.join(AGENTS_DIR, ROLES[role].prompt), 'utf8');
+    const contract = fs.readFileSync(path.join(AGENTS_DIR, '_contract.md'), 'utf8');
+    const decisions = s.questions.filter((q) => q.answer).map((q) => `- ${q.q} → **${q.answer}**${q.status === 'auto' ? ' (자동: 추천안)' : ''}`).join('\n');
+    const rejected = s.assumptions.filter((a) => a.rejected).map((a) => `- (틀린 가정) ${a.text}`).join('\n');
+    const msgs = s.messages.slice(-10).map((m) => `- [${m.floor}F] ${m.text}`).join('\n');
+    const docs = s.stages.filter((x) => x.status === 'done').map((x) => `- ${x.doc}`).join('\n');
+    return [
+      rolePrompt, contract,
+      `## 프로젝트 아이디어 (대표 원문)\n${s.idea}`,
+      decisions && `## 지금까지 확정된 결정\n${decisions}`,
+      rejected && `## 대표가 틀렸다고 표시한 가정\n${rejected}`,
+      msgs && `## 대표의 최근 메시지\n${msgs}`,
+      docs && `## 이미 작성된 기획 문서 (먼저 읽으세요)\n${docs}`,
+      ...parts,
+    ].filter(Boolean).join('\n\n');
+  }
+
+  async #agent(role, toolset, prompt, mock) {
+    this.abort = new AbortController();
+    const runFile = path.join(this.store.dir, 'runs', `${Date.now()}-${role}.jsonl`);
+    const floor = ROLES[role].floor;
+    const r = await runAgent({
+      engine: this.engine, model: this.model, prompt, toolset, cwd: this.cwd, runFile,
+      signal: this.abort.signal, mock: { ...mock, idea: this.s.idea },
+      onLog: (line) => this.log(line, { floor, role, agent: true }),
+    });
+    if (r.cost) this.store.update((s) => { s.costUsd = (s.costUsd ?? 0) + r.cost; });
+    return r;
+  }
+
+  #runTests() {
+    const cmd = this.s.testCommand;
+    if (!cmd) return Promise.resolve({ ok: true, tail: '(테스트 명령 없음 — 통과로 간주)' });
+    return new Promise((resolve) => {
+      const child = spawn(cmd, { cwd: this.cwd, shell: true, env: { ...process.env, CI: '1' } });
+      let out = '';
+      const add = (d) => { out += d; if (out.length > 20000) out = out.slice(-20000); };
+      child.stdout.on('data', add); child.stderr.on('data', add);
+      const timer = setTimeout(() => child.kill('SIGKILL'), 10 * 60 * 1000);
+      this.abort = new AbortController();
+      this.abort.signal.addEventListener('abort', () => child.kill('SIGKILL'));
+      child.on('close', (code) => { clearTimeout(timer); resolve({ ok: code === 0, tail: out.slice(-3000) }); });
+    });
+  }
+
+  #git(args) {
+    const r = spawnSync('git', args, { cwd: this.cwd, encoding: 'utf8' });
+    if (r.status !== 0 && !['merge'].includes(args[0])) this.log(`git ${args.join(' ')} 실패: ${r.stderr?.trim()}`, { level: 'warn' });
+    return r;
+  }
+
+  #ensureGit() {
+    if (!fs.existsSync(path.join(this.cwd, '.git'))) this.#git(['init', '-q', '-b', 'main']);
+    const ig = path.join(this.cwd, '.gitignore');
+    const cur = fs.existsSync(ig) ? fs.readFileSync(ig, 'utf8') : '';
+    if (!cur.split('\n').includes('.mwa/')) fs.appendFileSync(ig, (cur && !cur.endsWith('\n') ? '\n' : '') + '.mwa/\nnode_modules/\n');
+    const id = ['-c', 'user.name=MWA Office', '-c', 'user.email=mwa@localhost'];
+    const head = spawnSync('git', ['rev-parse', '--verify', 'main'], { cwd: this.cwd });
+    if (head.status !== 0) {
+      this.#git(['checkout', '-q', '-B', 'main']);
+      this.#git(['add', '-A']);
+      this.#git([...id, 'commit', '-q', '--allow-empty', '-m', 'MWA: 기획 문서']);
+    } else {
+      this.#git(['add', '-A']);
+      this.#git([...id, 'commit', '-q', '-m', 'MWA: 기획 문서']);
+    }
+    // 이후 커밋에서도 사용자 정보가 없을 수 있으므로 로컬 설정을 채워 둡니다.
+    if (spawnSync('git', ['config', 'user.email'], { cwd: this.cwd }).status !== 0) {
+      this.#git(['config', 'user.name', 'MWA Office']); this.#git(['config', 'user.email', 'mwa@localhost']);
+    }
+  }
+
+  #setActivity(a) {
+    this.store.update((s) => { s.activity = a ?? { floor: 1, role: null, label: this.isBlocked() ? '대표 차례' : '대기 중', ticket: null }; });
+  }
+}
+
+export { PLANNING_STAGES };
