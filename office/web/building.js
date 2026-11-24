@@ -230,7 +230,7 @@ export function buildStatic(svg, meta, onFloor) {
   html += slab(0, zt, true) + box(0, 0, zt, W, 0.2, 0.45, '#d5dbe3') + box(0, 0.2, zt, 0.2, D - 0.2, 0.45, '#d5dbe3');
   html += box(3.4, 2.4, zt, 6.6, 0.3, 1.2, '#1f2937');
   const [sx, sy] = P(3.7, 2.7, zt + 0.32);
-  html += `<text transform="matrix(${CX},${SX},0,1,${sx},${sy})" class="roof-sign" font-size="${0.72 * S}">MWA OFFICE</text>`;
+  html += `<text transform="matrix(${CX},${SX},0,1,${sx},${sy})" class="roof-sign" font-size="${0.72 * S}">BS OFFICE</text>`;
   // 엘리베이터 샤프트(유리)
   const ex = W + 0.5, ey = 0.4, ew = 2.3, ed = 2.2, eh = floors * H + 0.6;
   html += poly('#cfd8e2', [[ex, ey, 0], [ex + ew, ey, 0], [ex + ew, ey, eh], [ex, ey, eh]], STROKE);

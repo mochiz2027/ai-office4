@@ -35,7 +35,7 @@ export function create3D(container, meta, { onFloor, onExit } = {}) {
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 400);
-  const HOME = { pos: new THREE.Vector3(-18, 16.5, 37), target: new THREE.Vector3(1.5, 8.4, 0) };
+  const HOME = { pos: new THREE.Vector3(-18, 16.5, 37), target: new THREE.Vector3(1.5, 7.8, 0) };
   camera.position.copy(HOME.pos);
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.target.copy(HOME.target);
@@ -199,14 +199,16 @@ export function create3D(container, meta, { onFloor, onExit } = {}) {
   box(roof, X0 - 0.2, ry, Z1 - 0.15, W + LW + 0.2, 0.5, 0.15, '#d5dbe3'); box(roof, X0 - 0.2, ry, Z0 - 0.2, 0.15, 0.5, D + 0.2, '#d5dbe3');
   box(roof, X1 + 0.2, ry, Z0, LW - 0.4, 1.8, 2.6, '#dde2e9');                                  // 기계실(엘리베이터 상부)
   for (let i = 0; i < 6; i++) box(roof, X1 + 0.35, ry + 0.4 + i * 0.22, Z0 + 2.61, LW - 0.7, 0.06, 0.02, '#a3adb9', { cast: false });
-  box(roof, -4.6, ry, -0.4, 9.2, 1.5, 0.35, '#1f2937');                                          // 옥상 간판
+  // 간판: 4층 앞면 위쪽 가운데(사무실+로비 전체 폭의 중앙)에 붙입니다. 층에 들어가면 지붕과 함께 숨깁니다.
+  const SIGN = { cx: (X0 + X1 + LW) / 2, w: 7.2, h: 1.1, y: ry - T - 1.25, z: Z1 + 0.02 };
+  box(roof, SIGN.cx - SIGN.w / 2 - 0.1, SIGN.y - 0.1, SIGN.z, SIGN.w + 0.2, SIGN.h + 0.2, 0.25, '#1f2937');
   const sign = canvasTex(1024, 160, (g2, c) => {
     g2.fillStyle = '#1f2937'; g2.fillRect(0, 0, c.width, c.height);
     g2.font = 'bold 110px "Arial Black", sans-serif'; g2.textAlign = 'center'; g2.textBaseline = 'middle';
-    g2.shadowColor = '#fde68a'; g2.shadowBlur = 28; g2.fillStyle = '#fde68a'; g2.fillText('MWA OFFICE', c.width / 2, c.height / 2 + 6);
+    g2.shadowColor = '#fde68a'; g2.shadowBlur = 28; g2.fillStyle = '#fde68a'; g2.fillText('BS OFFICE', c.width / 2, c.height / 2 + 6);
   });
-  const signM = new THREE.Mesh(new THREE.PlaneGeometry(8.8, 1.3), new THREE.MeshBasicMaterial({ map: sign.tex }));
-  signM.position.set(0, ry + 0.75, -0.04); roof.add(signM);
+  const signM = new THREE.Mesh(new THREE.PlaneGeometry(SIGN.w, SIGN.h), new THREE.MeshBasicMaterial({ map: sign.tex }));
+  signM.position.set(SIGN.cx, SIGN.y + SIGN.h / 2, SIGN.z + 0.26); roof.add(signM);
 
   // ---------- 층별 가구 ----------
   function desk(g, x, z, y, monitors = 1, zoneColor) {
