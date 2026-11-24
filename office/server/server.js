@@ -16,7 +16,7 @@ export function startServer({ projectDir, port = 4780, host = '127.0.0.1', engin
   const orch = new Orchestrator(store, { engine, model });
   const clients = new Set();
   const send = (event, data) => { const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`; for (const c of clients) c.write(msg); };
-  const snapshot = () => ({ state: store.state, ledger: computeLedger(store.state, projectDir), meta: { projectDir, engine, busy: orch.busy }, setup: orch.setup ?? null });
+  const snapshot = () => ({ state: store.state, ledger: computeLedger(store.state, projectDir), meta: { projectDir, engine: orch.engine, busy: orch.busy }, setup: orch.setup ?? null });
   let pending = null;
   store.on('state', () => { if (!pending) pending = setTimeout(() => { pending = null; send('state', snapshot()); }, 80); });
   store.on('log', (e) => send('log', e));
@@ -25,11 +25,12 @@ export function startServer({ projectDir, port = 4780, host = '127.0.0.1', engin
   const json = (res, code, obj) => { res.writeHead(code, { 'content-type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(obj)); };
 
   const routes = {
-    'GET /api/meta': () => ({ floors: FLOORS, roles: ROLES, stages: PLANNING_STAGES, areas: AREAS.map(({ kw, ...a }) => a), projectDir, engine }),
+    'GET /api/meta': () => ({ floors: FLOORS, roles: ROLES, stages: PLANNING_STAGES, areas: AREAS.map(({ kw, ...a }) => a), projectDir, engine: orch.engine }),
     'GET /api/snapshot': () => snapshot(),
     'GET /api/logs': () => store.logs,
     'POST /api/message': (b) => orch.postMessage(Number(b.floor), b.text),
     'POST /api/mode': (b) => orch.setMode(b.mode),
+    'POST /api/engine': (b) => orch.setEngine(b.engine),
     'POST /api/answer': (b) => orch.answer(b.id, b.answer),
     'POST /api/assumption': (b) => orch.confirmAssumption(b.id, b.ok !== false),
     'POST /api/approve': (b) => orch.approve(b.id, b.action, b.note),

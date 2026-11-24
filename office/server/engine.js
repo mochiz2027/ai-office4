@@ -22,9 +22,12 @@ export function parseContract(text) {
   return {};
 }
 
+// 테스트 실행만 허용하는 명령(리뷰어·스크럼 마스터도 테스트 결과를 직접 확인)
+const TEST_CMDS = ['Bash(node --test:*)', 'Bash(npm test:*)', 'Bash(npm run test:*)', 'Bash(pytest:*)', 'Bash(uv run pytest:*)', 'Bash(bash scripts/test.sh:*)'];
 const TOOLSETS = {
-  plan: ['Read', 'Write', 'Edit', 'Glob', 'Grep'],
-  review: ['Read', 'Glob', 'Grep', 'Bash(git diff:*)', 'Bash(git status:*)', 'Bash(git log:*)'],
+  plan: ['Read', 'Write', 'Edit', 'Glob', 'Grep', ...TEST_CMDS],
+  // 리뷰·운영: 코드는 못 고치지만 테스트는 직접 돌려 확인할 수 있습니다.
+  review: ['Read', 'Glob', 'Grep', 'Bash(git diff:*)', 'Bash(git status:*)', 'Bash(git log:*)', ...TEST_CMDS],
   dev: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash'],
   chat: ['Read', 'Glob', 'Grep'], // 대화 답변: 읽기만
 };
@@ -111,6 +114,13 @@ async function runMock({ cwd, onLog, signal, mock = {} }) {
   };
   if (mock.chat) { // 대화 답변 (mock)
     await sleep(delay, signal);
+    if (mock.afterPlan) {
+      const q = /[?？]\s*$/.test(mock.chat.trim()) || /(확인해|알려|궁금|되는지|됐어|됐나|할까)/.test(mock.chat);
+      const contract = q ? { action: 'none' } : { action: 'change', ticket: { title: String(mock.chat).slice(0, 30), desc: mock.chat, acceptance: ['요청이 반영되었다'] } };
+      const text = `(mock) ${mock.who}입니다. ${q ? '질문으로 이해했습니다. 지금 상태를 확인해 답드립니다(시연 엔진이라 실제 확인은 하지 않습니다).' : '작업 지시로 이해했습니다. 티켓으로 만들어 개발·테스트·리뷰까지 진행하겠습니다.'}`;
+      onLog('(mock) 답변 완료');
+      return { text: text + '\n```json\n' + JSON.stringify(contract) + '\n```', cost: 0, contract };
+    }
     const text = `(mock) ${mock.who}입니다. 말씀하신 "${String(mock.chat).slice(0, 60)}" 내용을 확인했습니다.\n\n**처리 방식:** ${mock.route}\n\n추가로 정하실 것이 있으면 이어서 말씀해 주세요.`;
     onLog('(mock) 답변 완료');
     return { text, cost: 0, contract: {} };

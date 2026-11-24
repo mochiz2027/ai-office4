@@ -25,6 +25,7 @@ export function runChecks(projectDir, { engine = 'claude' } = {}) {
   add('git', 'git', git.ok, true, git.ok ? git.out : '설치되어 있지 않습니다', 'sudo apt install -y git');
 
   const needClaude = engine === 'claude';
+  add('engine', '실행 엔진', engine === 'claude', false, engine === 'claude' ? '실제 개발(Claude)' : '시연(mock) — 문서·코드를 실제로 만들지 않습니다', '화면 위쪽의 "실제 개발로 전환" 버튼 또는 mwa up --engine claude');
   const cl = run('claude', ['--version']);
   add('claude', 'Claude Code CLI', cl.ok, needClaude, cl.ok ? cl.out : '설치되어 있지 않습니다', 'npm i -g @anthropic-ai/claude-code');
   if (cl.ok) {

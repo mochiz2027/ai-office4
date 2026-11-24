@@ -51,9 +51,7 @@ test('빌드 중 3F 메시지는 변경 요청 티켓이 된다', async () => {
   orch.postMessage(2, '아이디어');
   await until(() => store.state.phase === 'building');
   orch.postMessage(3, '버튼 색을 바꿔 주세요');
-  await until(() => store.state.phase === 'done', 30000);
-  const cr = store.state.epics.flatMap((e) => e.tickets).find((t) => t.cr);
-  assert.ok(cr && cr.status === 'done');
+  await until(() => store.state.phase === 'done' && store.state.epics.flatMap((e) => e.tickets).some((t) => t.cr && t.status === 'done'), 30000);
 });
 
 test('완료 후 2F 메시지도 새 티켓으로 만들어 다시 작업한다', async () => {
@@ -63,8 +61,13 @@ test('완료 후 2F 메시지도 새 티켓으로 만들어 다시 작업한다'
   const orch = new Orchestrator(store, { engine: 'mock' });
   orch.postMessage(2, '아이디어');
   await until(() => store.state.phase === 'done', 30000);
+  orch.postMessage(2, '기획 끝났으면 개발되는지 확인해 줘');
+  await until(() => store.state.messages.filter((m) => m.from === 'pm').length >= 2);
+  assert.equal(store.state.changeRequests.length, 0, '질문은 티켓을 만들지 않는다');
+  assert.equal(store.state.phase, 'done');
   orch.postMessage(2, '견적 화면에 부가세 표시를 추가해 주세요');
-  assert.equal(store.state.phase, 'building');
+  await until(() => store.state.changeRequests.length === 1);
+  assert.ok(store.state.changeRequests[0].spec?.title, '직원이 정리한 티켓 내용이 붙는다');
   await until(() => store.state.phase === 'done' && store.state.epics.flatMap((e) => e.tickets).some((t) => t.cr && t.status === 'done'), 30000);
   const ids = store.state.epics.flatMap((e) => e.tickets.map((t) => t.id));
   assert.equal(new Set(ids).size, ids.length, '티켓 번호가 겹치지 않는다');

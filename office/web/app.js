@@ -133,7 +133,12 @@ function renderTop() {
   document.querySelectorAll('#modeSeg button').forEach((b) => b.classList.toggle('on', b.dataset.mode === s.mode));
   $('#pauseBtn').textContent = s.phase === 'paused' ? '재개' : '일시정지';
   $('#pauseBtn').disabled = !['planning', 'building', 'paused'].includes(s.phase);
-  $('#cost').textContent = s.costUsd ? `누적 $${s.costUsd.toFixed(2)}` : `엔진: ${SNAP.meta.engine}`;
+  $('#cost').textContent = s.costUsd ? `누적 $${s.costUsd.toFixed(2)}` : '';
+  const real = SNAP.meta.engine === 'claude';
+  $('#engineBtn').textContent = real ? '엔진: 실제 개발(Claude)' : '엔진: 시연(mock)';
+  $('#engineBtn').classList.toggle('warn', !real); $('#engineBtn').dataset.engine = real ? 'mock' : 'claude';
+  $('#engineBtn').title = real ? '누르면 시연(mock) 엔진으로 바꿉니다' : '누르면 실제 개발(Claude) 엔진으로 바꿉니다';
+  $('#mockBar').classList.toggle('hidden', real);
 }
 
 function stageList() {
@@ -327,6 +332,11 @@ document.addEventListener('click', async (e) => {
   }
   else if (d.tab) { tab = d.tab; showTab(); }
   else if (d.mode) await api('/api/mode', { mode: d.mode });
+  else if (d.engine) {
+    if (d.engine === 'mock' && !window.confirm('시연(mock) 엔진으로 바꾸면 실제 개발을 하지 않습니다. 바꿀까요?')) return;
+    const r = await api('/api/engine', { engine: d.engine });
+    if (!r.ok) window.alert(r.error ?? '엔진을 바꾸지 못했습니다.');
+  }
   else if (d.answer) await api('/api/answer', { id: d.answer, answer: d.val });
   else if (d.answerFree) { if (!msg.value.trim()) return msg.focus(); await api('/api/answer', { id: d.answerFree, answer: msg.value.trim() }); msg.value = ''; }
   else if (d.approve) await api('/api/approve', { id: d.approve, action: 'approve' });

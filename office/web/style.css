@@ -218,3 +218,7 @@ table.api { width: 100%; border-collapse: collapse; font-size: 12.5px; } table.a
 .floor-nav, .view3d { z-index: 2; }
 .view3d { position: absolute; left: 16px; bottom: 16px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .view3d .hint3d { color: var(--muted); background: var(--surface); padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line); }
+
+/* 엔진 표시 */
+.btn.engine.warn { border-color: var(--warn); color: var(--warn); background: var(--warn-soft); }
+.mockbar { position: absolute; left: 16px; right: 200px; top: 12px; z-index: 3; background: var(--warn-soft); color: var(--text); border: 1px solid var(--warn); border-radius: 10px; padding: 8px 12px; font-size: 13px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }

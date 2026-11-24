@@ -5,11 +5,13 @@ import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { PLANNING_STAGES, ROLES, stageById, classifyArea } from './roles.js';
-import { runAgent } from './engine.js';
+import { runAgent, hasClaude } from './engine.js';
 import { runChecks } from './doctor.js';
 
 const AGENTS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'agents');
 const MAX_ATTEMPTS = 3;
+/** 직원 판단을 못 받았을 때 쓰는 간단한 질문 판별 */
+export const looksLikeQuestion = (t) => /[?？]\s*$/.test(t.trim()) || /(확인해|알려|궁금|뭐야|뭐지|어때|되나|되는지|됐어|됐나|할까|인가요|나요\??$|건가)/.test(t);
 const readJson = (p) => { try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return null; } };
 
 export class Orchestrator {
@@ -52,17 +54,23 @@ export class Orchestrator {
       route = '기획 진행 중이라 이 내용을 기획 지시로 받아 다음 기획 단계부터 문서에 반영합니다.';
       this.log('기획 지시로 접수했습니다. 다음 기획 단계부터 반영합니다.', { floor: 2 });
     } else {
-      // 기획이 끝난 뒤(빌드 승인 대기·빌드 중·완료·오류): 변경 요청 → 티켓으로 만들어 실제로 작업합니다.
-      this.store.update((s) => {
-        s.changeRequests.push({ id: this.store.nextId('CR', s.changeRequests), text, floor, status: 'pending' });
-        if (s.phase === 'done') s.phase = 'building'; // 완료된 프로젝트도 다시 일을 시작합니다.
-      });
-      const when = { ready: '빌드를 승인하면 가장 먼저', building: '진행 중인 티켓이 끝나는 대로', paused: '재개하면', done: '지금 바로', error: '오류를 다시 시도하면' }[phase] ?? '곧';
-      route = `기획이 끝난 상태라 변경 요청(${this.s.changeRequests.at(-1).id})으로 접수했고, ${when} 티켓으로 만들어 개발·테스트·리뷰를 진행합니다.`;
-      this.log(`변경 요청으로 접수했습니다. ${when} 티켓으로 만들어 작업합니다.`, { floor });
+      // 기획이 끝난 뒤: 담당 직원이 먼저 읽고, 작업 지시면 변경 요청 티켓으로 만들어 개발까지 진행합니다. 질문이면 답만 합니다.
+      route = 'AFTER_PLAN';
     }
     this.kick();
     this.#reply(floor, text, route);
+  }
+
+  /** 실행 엔진 전환: claude(실제 개발) / mock(시연) */
+  setEngine(engine) {
+    if (!['claude', 'mock'].includes(engine)) return { ok: false, error: '알 수 없는 엔진입니다.' };
+    if (engine === 'claude' && !hasClaude()) return { ok: false, error: 'claude CLI 를 찾지 못했습니다. 터미널에서 `claude --version` 과 `mwa doctor` 로 확인해 주세요.' };
+    this.engine = engine;
+    this.setup = null; // 설치 점검을 새 엔진 기준으로 다시 합니다.
+    this.recheckSetup?.();
+    this.log(engine === 'claude' ? '실제 Claude 엔진으로 전환했습니다. 이제 직원들이 실제로 문서를 쓰고 코드를 개발합니다.' : '시연(mock) 엔진으로 전환했습니다. 실제 개발은 하지 않습니다.', { floor: 1, level: engine === 'mock' ? 'warn' : undefined });
+    this.store.save();
+    return { ok: true, engine };
   }
 
   setMode(mode) {
@@ -300,7 +308,9 @@ export class Orchestrator {
       for (const c of s.changeRequests.filter((x) => x.status === 'pending')) {
         const idx = epic.tickets.findIndex((t) => t.status === 'todo');
         do n++; while (used.has(`T${n}`)); used.add(`T${n}`);
-        const t = { id: `T${n}`, title: `[변경] ${c.text.slice(0, 40)}`, desc: c.text, acceptance: ['대표의 변경 요청이 반영되었다'], status: 'todo', attempts: 0, cr: c.id };
+        const tk = c.spec ?? {};
+        const t = { id: `T${n}`, title: `[변경] ${(tk.title ?? c.text).slice(0, 40)}`, desc: tk.desc ? `${tk.desc}\n\n(대표 원문) ${c.text}` : c.text,
+          acceptance: tk.acceptance?.length ? tk.acceptance : ['대표의 변경 요청이 반영되었다'], status: 'todo', attempts: 0, cr: c.id };
         t.area = classifyArea(t);
         idx < 0 ? epic.tickets.push(t) : epic.tickets.splice(idx, 0, t);
         c.status = 'ticketed'; c.ticket = t.id;
@@ -326,7 +336,7 @@ export class Orchestrator {
         const e = s.epics.find((x) => x.id === epicId);
         if (Array.isArray(r.contract.tickets) && r.contract.tickets.length) {
           const base = e.tickets[0] ? Number(e.tickets[0].id.slice(1)) : 1;
-          e.tickets = r.contract.tickets.map((t) => ({ id: '', title: t.title, desc: t.desc ?? '', acceptance: t.acceptance ?? [], area: classifyArea(t), status: 'todo', attempts: 0 }));
+          e.tickets = r.contract.tickets.map((t) => ({ id: '', title: String(t.title ?? '').replace(/^\s*T\d+(\.\d+)*[:.)]?\s+/, ''), desc: t.desc ?? '', acceptance: t.acceptance ?? [], area: classifyArea(t), status: 'todo', attempts: 0 }));
           e.tickets.forEach((t, i) => { t.id = i === 0 ? `T${base}` : `T${base}.${i}`; });
         }
         e.status = 'active';
@@ -444,6 +454,20 @@ export class Orchestrator {
     this.log(`${epicId} 에픽 마무리 완료`, { floor: 3, role: 'sm' });
   }
 
+  #addChangeRequest(floor, text, ticket) {
+    const phase = this.s.phase;
+    let cr;
+    this.store.update((s) => {
+      cr = { id: this.store.nextId('CR', s.changeRequests), text, floor, status: 'pending', spec: ticket?.title ? ticket : null };
+      s.changeRequests.push(cr);
+      if (s.phase === 'done') s.phase = 'building'; // 완료된 프로젝트도 다시 일을 시작합니다.
+    });
+    const when = { ready: '빌드를 승인하면 가장 먼저', building: '진행 중인 티켓이 끝나는 대로', paused: '재개하면', done: '지금 바로', error: '오류를 다시 시도하면' }[phase] ?? '곧';
+    this.log(`변경 요청 ${cr.id}을(를) 접수했습니다. ${when} 티켓으로 만들어 개발합니다.`, { floor });
+    this.kick();
+    return cr;
+  }
+
   // ---------- 대화: 대표 메시지에 담당 직원이 바로 답합니다 ----------
   static CHAT_ROLE = { 1: 'pm', 2: 'pm', 3: 'sm', 4: 'dev' };
   #chatChain = Promise.resolve();
@@ -454,7 +478,7 @@ export class Orchestrator {
     return this.#chatChain;
   }
   async #answerChat(floor, role, text, route) {
-    const s = this.s, R = ROLES[role];
+    const s = this.s, R = ROLES[role], afterPlan = route === 'AFTER_PLAN';
     const conv = s.messages.filter((m) => m.floor === floor).slice(-13, -1)
       .map((m) => `- ${m.from === 'ceo' ? '대표' : ROLES[m.from]?.name ?? m.from}: ${m.text.slice(0, 800)}`).join('\n');
     const stages = s.stages.map((x) => `${stageById(x.id)?.title ?? x.id}=${x.status}`).join(', ');
@@ -467,26 +491,35 @@ export class Orchestrator {
       '- 필요하면 프로젝트 파일과 기획 문서를 읽어 근거를 확인합니다. 파일은 절대 수정하지 않습니다(작업은 사무실 진행기가 따로 합니다).',
       '- 대표가 정해야 할 것이 있으면 번호 목록으로 선택지를 주고 추천안을 밝힙니다.',
       '- 확실하지 않은 수치·사실은 추측하지 말고 [확인필요]로 표시합니다.',
-      '- JSON 블록은 쓰지 않습니다.',
+      afterPlan ? null : '- JSON 블록은 쓰지 않습니다.',
       `## 프로젝트 상황\n- 단계: ${s.phase}\n- 아이디어: ${s.idea || '(아직 없음)'}\n- 기획 단계: ${stages}`,
       tickets && `## 최근 티켓\n${tickets}`,
       docs && `## 작성된 기획 문서\n${docs}`,
       conv && `## 이전 대화\n${conv}`,
-      `## 이 메시지의 처리 방식 (시스템)\n${route}`,
+      afterPlan ? `## 이 메시지의 처리 방식 (중요)\n기획은 끝났고 프로젝트 단계는 "${s.phase}"입니다. 대표의 메시지가 **무언가를 만들거나 고치라는 작업 지시**인지, **질문·확인 요청·잡담**인지 판단하세요.\n- 작업 지시이면: 답변에서 "티켓으로 만들어 개발·테스트·리뷰까지 진행하겠습니다"라고 알리고, 맨 끝 JSON 에 action "change" 와 개발자가 바로 작업할 수 있는 티켓을 적습니다.\n- 질문·확인 요청이면: 파일·문서·티켓 상태를 읽어 근거 있게 답하고, JSON 의 action 은 "none" 입니다. (예: "개발되는지 확인해 줘" → 현재 티켓·코드 상태를 확인해 보고)\n- 맨 끝에 아래 JSON 블록을 정확히 하나 붙입니다(대표에게는 보이지 않습니다).\n\`\`\`json\n{"action": "change", "ticket": {"title": "짧은 제목", "desc": "무엇을 어떻게 바꾸는지", "acceptance": ["완료 기준"]}}\n\`\`\`` : `## 이 메시지의 처리 방식 (시스템)\n${route}`,
       `## 대표의 새 메시지\n${text}`,
     ].filter(Boolean).join('\n\n');
-    let answer;
+    let answer, contract = {};
     try {
       const r = await runAgent({
         engine: this.engine, model: this.model || this.loop.models.chat || undefined, prompt, toolset: 'chat', cwd: this.cwd,
         runFile: path.join(this.store.dir, 'runs', `${Date.now()}-chat-${role}.jsonl`),
-        mock: { chat: text, who: R.name, route }, onLog: () => {},
+        mock: { chat: text, who: R.name, route, afterPlan }, onLog: () => {},
       });
       if (r.cost) this.store.update((x) => { x.costUsd = (x.costUsd ?? 0) + r.cost; });
-      answer = String(r.text ?? '').replace(/```json[\s\S]*?```\s*$/, '').trim() || route;
+      contract = r.contract ?? {};
+      answer = String(r.text ?? '').replace(/```json[\s\S]*?```\s*$/, '').trim();
     } catch (e) {
-      answer = `답변을 만들지 못했습니다(${e.message.slice(0, 120)}). 메시지는 접수되었습니다: ${route}`;
+      answer = `답변을 만들지 못했습니다(${e.message.slice(0, 120)}).`;
     }
+    if (afterPlan) {
+      // 직원 판단이 없으면(오류 등) 질문처럼 보이지 않는 한 작업 지시로 봅니다.
+      const isChange = contract.action ? contract.action === 'change' : !looksLikeQuestion(text);
+      if (isChange) {
+        const cr = this.#addChangeRequest(floor, text, contract.ticket);
+        answer = (answer ? answer + '\n\n' : '') + `**접수:** 변경 요청 ${cr.id}로 티켓을 만들어 개발·테스트·리뷰까지 진행합니다.`;
+      } else if (!answer) answer = '질문으로 받았습니다. 티켓은 만들지 않았습니다.';
+    } else if (!answer) answer = route;
     this.store.update((x) => {
       x.messages.push({ floor, from: role, text: answer, ts: new Date().toISOString() });
       const p = { ...(x.chatPending ?? {}) }; delete p[floor]; x.chatPending = p;

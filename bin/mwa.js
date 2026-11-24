@@ -45,7 +45,7 @@ async function up() {
   await init({ quiet: true, starter: st === true || st === 'none' ? null : st });
   let engine = flag('engine', 'claude');
   if (engine === 'claude' && spawnSync('claude', ['--version']).status !== 0) {
-    console.log('⚠️  claude CLI 를 찾지 못해 mock(시연) 엔진으로 실행합니다. `mwa doctor` 로 확인하세요.');
+    console.log('⚠️  claude CLI 를 찾지 못해 mock(시연) 엔진으로 실행합니다. 이 상태에서는 실제 개발을 하지 않습니다.\n    `claude --version` 과 `mwa doctor` 로 확인한 뒤, 화면 위쪽 엔진 버튼으로 실제 개발로 바꾸세요.');
     engine = 'mock';
   }
   const { startServer } = await import(path.join(ROOT, 'office/server/server.js'));
@@ -54,7 +54,7 @@ async function up() {
   if (mode === 'auto' || mode === 'manual') store.update((s) => { s.mode = mode; });
   console.log(`\n🏢  MWA 사무실이 열렸습니다 → ${url}`);
   console.log(`    프로젝트: ${projectDir}`);
-  console.log(`    엔진: ${engine}  ·  모드: ${store.state.mode === 'auto' ? '자동' : '수동'}  ·  종료: Ctrl+C\n`);
+  console.log(`    엔진: ${engine === 'claude' ? '실제 개발(Claude)' : '⚠️ 시연(mock) — 실제 개발 안 함'}  ·  모드: ${store.state.mode === 'auto' ? '자동' : '수동'}  ·  종료: Ctrl+C\n`);
   if (!flag('no-open', false)) openBrowser(url);
 }
 
