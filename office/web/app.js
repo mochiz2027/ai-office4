@@ -182,9 +182,11 @@ function renderFloorInfo() {
   }
   $('#floorInfo').innerHTML = `<div class="card"><h3>${floor}F ${esc(f.name)}</h3><p class="muted" style="margin:0 0 8px">${esc(f.desc)}</p>${body}</div>`;
   $('#msgLabel').textContent = `메시지 — ${f.name}`;
-  $('#msg').placeholder = floor === 2 && s.phase === 'idle' ? '만들고 싶은 것을 한 단락으로 써 주세요. (외주 공고를 그대로 붙여 넣어도 됩니다)'
-    : floor >= 3 && ['building', 'paused'].includes(s.phase) ? '변경 요청을 쓰면 진행 중인 티켓이 끝난 뒤 새 티켓으로 반영합니다.'
-      : `${f.name} 직원에게 보낼 메시지 (다음 작업 지시에 함께 전달됩니다)`;
+  const planning = s.phase === 'planning' || (s.phase === 'paused' && s.resumePhase === 'planning');
+  $('#msg').placeholder = s.phase === 'idle' ? '만들고 싶은 것을 한 단락으로 써 주세요. 보내면 바로 2F 기획을 시작합니다. (외주 공고를 그대로 붙여 넣어도 됩니다)'
+    : planning ? '기획 지시를 쓰면 다음 기획 단계부터 반영합니다.'
+      : s.phase === 'done' ? '추가·수정할 내용을 쓰면 새 티켓으로 만들어 바로 다시 작업합니다.'
+        : '변경 요청을 쓰면 새 티켓으로 만들어 작업합니다. (진행 중인 티켓이 끝난 뒤 반영)';
 }
 
 function renderFeed() {

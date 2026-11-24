@@ -56,6 +56,20 @@ test('빌드 중 3F 메시지는 변경 요청 티켓이 된다', async () => {
   assert.ok(cr && cr.status === 'done');
 });
 
+test('완료 후 2F 메시지도 새 티켓으로 만들어 다시 작업한다', async () => {
+  process.env.MWA_MOCK_DELAY = '30';
+  const dir = tmp();
+  const store = new Store(dir);
+  const orch = new Orchestrator(store, { engine: 'mock' });
+  orch.postMessage(2, '아이디어');
+  await until(() => store.state.phase === 'done', 30000);
+  orch.postMessage(2, '견적 화면에 부가세 표시를 추가해 주세요');
+  assert.equal(store.state.phase, 'building');
+  await until(() => store.state.phase === 'done' && store.state.epics.flatMap((e) => e.tickets).some((t) => t.cr && t.status === 'done'), 30000);
+  const ids = store.state.epics.flatMap((e) => e.tickets.map((t) => t.id));
+  assert.equal(new Set(ids).size, ids.length, '티켓 번호가 겹치지 않는다');
+});
+
 test('scaffold: 스타터 골격을 만들고 기존 파일은 덮어쓰지 않는다', async () => {
   const { scaffold } = await import('../server/scaffold.js');
   const dir = tmp();

@@ -1,6 +1,6 @@
 {
   "name": "mwa",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "MWA 스타일 바이브코딩 사무실 — BMAD 역할 기반 AI 개발 하네스 (원본과 별개인 독자 구현)",
   "type": "module",
   "bin": { "mwa": "bin/mwa.js" },

@@ -40,12 +40,22 @@ export class Orchestrator {
     this.store.update((s) => s.messages.push({ floor, from: 'ceo', text, ts: new Date().toISOString() }));
     this.log(`대표 → ${floor}F: ${text}`, { floor, role: 'ceo' });
 
-    if (this.s.phase === 'idle' && floor === 2) {
+    const phase = this.s.phase;
+    if (phase === 'idle') {
+      // 시작 전: 어느 층에 쓰든 아이디어로 받아 2F 기획을 시작합니다.
       this.store.update((s) => { s.idea = text; s.phase = 'planning'; });
-      this.log('2F 기획 세션을 시작했습니다.', { floor: 2 });
-    } else if (['building', 'paused'].includes(this.s.phase) && floor >= 3) {
-      this.store.update((s) => s.changeRequests.push({ id: this.store.nextId('CR', s.changeRequests), text, status: 'pending' }));
-      this.log('변경 요청으로 접수했습니다. 진행 중인 티켓이 끝나면 반영합니다.', { floor });
+      this.log('아이디어를 받아 2F 기획 세션을 시작했습니다.', { floor: 2 });
+    } else if (phase === 'planning' || (phase === 'paused' && this.s.resumePhase === 'planning')) {
+      // 기획 중: 다음 기획 단계 프롬프트에 그대로 들어갑니다(최근 메시지).
+      this.log('기획 지시로 접수했습니다. 다음 기획 단계부터 반영합니다.', { floor: 2 });
+    } else {
+      // 기획이 끝난 뒤(빌드 승인 대기·빌드 중·완료·오류): 변경 요청 → 티켓으로 만들어 실제로 작업합니다.
+      this.store.update((s) => {
+        s.changeRequests.push({ id: this.store.nextId('CR', s.changeRequests), text, floor, status: 'pending' });
+        if (s.phase === 'done') s.phase = 'building'; // 완료된 프로젝트도 다시 일을 시작합니다.
+      });
+      const when = { ready: '빌드를 승인하면 가장 먼저', building: '진행 중인 티켓이 끝나는 대로', paused: '재개하면', done: '지금 바로', error: '오류를 다시 시도하면' }[phase] ?? '곧';
+      this.log(`변경 요청으로 접수했습니다. ${when} 티켓으로 만들어 작업합니다.`, { floor });
     }
     this.kick();
   }
@@ -280,10 +290,12 @@ export class Orchestrator {
   #applyChangeRequests() {
     this.store.update((s) => {
       const epic = s.epics.find((e) => e.status !== 'done') ?? (s.epics.push({ id: `E${s.epics.length + 1}`, title: '변경 요청', status: 'active', tickets: [] }), s.epics.at(-1));
+      const used = new Set(s.epics.flatMap((e) => e.tickets.map((t) => t.id)));
       let n = s.epics.reduce((m, e) => m + e.tickets.length, 0);
       for (const c of s.changeRequests.filter((x) => x.status === 'pending')) {
         const idx = epic.tickets.findIndex((t) => t.status === 'todo');
-        const t = { id: `T${++n}`, title: `[변경] ${c.text.slice(0, 40)}`, desc: c.text, acceptance: ['대표의 변경 요청이 반영되었다'], status: 'todo', attempts: 0, cr: c.id };
+        do n++; while (used.has(`T${n}`)); used.add(`T${n}`);
+        const t = { id: `T${n}`, title: `[변경] ${c.text.slice(0, 40)}`, desc: c.text, acceptance: ['대표의 변경 요청이 반영되었다'], status: 'todo', attempts: 0, cr: c.id };
         t.area = classifyArea(t);
         idx < 0 ? epic.tickets.push(t) : epic.tickets.splice(idx, 0, t);
         c.status = 'ticketed'; c.ticket = t.id;
