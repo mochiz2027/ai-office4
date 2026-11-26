@@ -4,6 +4,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { safeEnv, billingGuard } from './billing.js';
 
 export function hasClaude() {
   const r = spawnSync('claude', ['--version'], { encoding: 'utf8' });
@@ -49,10 +50,13 @@ export function runAgent(o) {
 
 function runClaude({ prompt, toolset, cwd, onLog, signal, model, runFile }) {
   return new Promise((resolve, reject) => {
+    // 요금 청구 방지: 구독 로그인이 아니면 실행하지 않습니다.
+    const bill = billingGuard();
+    if (!bill.ok) return reject(Object.assign(new Error(`요금 청구 방지를 위해 실행을 멈췄습니다: ${bill.reason}`), { code: 'BILLING' }));
     const args = ['-p', '--output-format', 'stream-json', '--verbose',
       '--permission-mode', 'acceptEdits', '--allowedTools', TOOLSETS[toolset].join(',')];
     if (model) args.push('--model', model);
-    const child = spawn('claude', args, { cwd, env: process.env, stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn('claude', args, { cwd, env: safeEnv(), stdio: ['pipe', 'pipe', 'pipe'] });
     const out = runFile ? fs.createWriteStream(runFile) : null;
     let buf = '', result = '', cost = 0, lastText = '';
     const onAbort = () => child.kill('SIGTERM');

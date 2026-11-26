@@ -1,6 +1,7 @@
 // 설치 점검: 터미널(mwa doctor)과 1F 로비 카드가 같은 결과를 씁니다.
 import fs from 'node:fs';
 import os from 'node:os';
+import { checkBilling, BILLED_ENV, allowApi } from './billing.js';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
@@ -40,9 +41,16 @@ export function runChecks(projectDir, { engine = 'claude' } = {}) {
   const tok = process.env.CLAUDE_CODE_OAUTH_TOKEN;
   if (tok && !tok.startsWith('sk-ant-')) add('token', '로그인 토큰 형식', false, needClaude, `CLAUDE_CODE_OAUTH_TOKEN 값이 sk-ant- 로 시작하지 않습니다(승인 코드를 넣은 것 같습니다). 이 값 때문에 401 오류가 납니다.`, "unset CLAUDE_CODE_OAUTH_TOKEN; sed -i '/CLAUDE_CODE_OAUTH_TOKEN/d' ~/.bashrc");
 
+  if (cl.ok && needClaude) {
+    const b = checkBilling();
+    add('billing', '요금 청구 방지(구독 전용)', b.ok, true, b.ok ? `구독 로그인으로만 실행합니다${b.method ? ` (${b.method})` : ''}` : b.reason, 'claude  → /logout → /login 에서 구독 계정(Claude account with subscription) 선택');
+    const envs = BILLED_ENV.filter((k) => process.env[k]);
+    if (envs.length && !allowApi()) add('billedEnv', '과금 경로 환경변수', true, false, `${envs.join(', ')} 가 설정되어 있지만, 사무실은 이 값을 빼고 실행합니다(청구 없음).`, '');
+  }
+
   const wsl = os.release().toLowerCase().includes('microsoft');
   add('os', '실행 환경', process.platform !== 'win32', false, process.platform === 'win32' ? 'Windows 직접 실행 — WSL 권장' : wsl ? 'WSL' : process.platform, 'wsl --install');
-  add('apikey', 'API 키', true, false, process.env.ANTHROPIC_API_KEY ? '설정됨 — API 요금으로 과금됩니다' : '없음 — 구독 로그인으로 실행합니다');
+  add('apikey', 'API 키', true, false, process.env.ANTHROPIC_API_KEY ? (allowApi() ? '설정됨 — MWA_ALLOW_API=1 이라 API 요금으로 과금될 수 있습니다' : '설정되어 있지만 사무실은 사용하지 않습니다(청구 없음)') : '없음 — 구독 로그인으로 실행합니다');
 
   // 스타터 프로젝트 전용
   if (exists('pyproject.toml')) {

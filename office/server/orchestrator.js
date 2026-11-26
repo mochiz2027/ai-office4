@@ -583,7 +583,7 @@ export class Orchestrator {
   /** 사용량 한도·로그인 문제: 작업을 실패로 세지 않고 일시정지한 뒤 대표에게 알립니다. */
   #haltFor(e) {
     if (['planning', 'building'].includes(this.s.phase)) this.store.update((s) => { s.resumePhase = s.phase; s.phase = 'paused'; });
-    const tip = e.code === 'LIMIT' ? '한도가 풀리는 시각 이후에 화면 위쪽 [재개] 버튼을 누르면 멈춘 작업부터 다시 합니다.' : '로그인한 뒤 화면 위쪽 [재개] 버튼을 누르세요.';
+    const tip = e.code === 'LIMIT' ? '한도가 풀리는 시각 이후에 화면 위쪽 [재개] 버튼을 누르면 멈춘 작업부터 다시 합니다.' : e.code === 'BILLING' ? '구독 계정으로 다시 로그인(claude → /login)한 뒤 1F 설치 점검을 다시 하고 [재개]를 누르세요.' : '로그인한 뒤 화면 위쪽 [재개] 버튼을 누르세요.';
     this.log(`⏸ ${e.message} ${tip}`, { floor: 1, level: 'error' });
   }
 
@@ -599,7 +599,7 @@ export class Orchestrator {
         onLog: (line) => this.log(line, { floor, role, agent: true }),
       });
     } catch (e) {
-      if (e.code === 'LIMIT' || e.code === 'AUTH') this.#haltFor(e); // 실패로 세지 않고 일시정지합니다.
+      if (['LIMIT', 'AUTH', 'BILLING'].includes(e.code)) this.#haltFor(e); // 실패로 세지 않고 일시정지합니다.
       throw e;
     }
     if (r.cost) this.store.update((s) => { s.costUsd = (s.costUsd ?? 0) + r.cost; });
