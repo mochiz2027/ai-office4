@@ -567,7 +567,7 @@ export class Orchestrator {
       `${ROLES.ceo.name}님, **개발이 끝났습니다.**`,
       `- 에픽 ${s.epics.length}개, 티켓 ${done}/${ts.length}개 완료${skipped ? ` (건너뜀 ${skipped}개)` : ''}`,
       `- 자동 테스트: \`${s.testCommand || '(테스트 명령 없음)'}\` 통과`,
-      `- 누적 비용(API 환산): $${(s.costUsd ?? 0).toFixed(2)}`,
+      `- 사용량(API 환산 참고값, 구독이면 실제 청구 없음): $${(s.costUsd ?? 0).toFixed(2)}`,
       '',
       '**확인 방법**',
       `1. 프로젝트 폴더: \`${this.cwd}\``,

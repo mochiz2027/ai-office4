@@ -133,7 +133,8 @@ function renderTop() {
   document.querySelectorAll('#modeSeg button').forEach((b) => b.classList.toggle('on', b.dataset.mode === s.mode));
   $('#pauseBtn').textContent = s.phase === 'paused' ? '재개' : '일시정지';
   $('#pauseBtn').disabled = !['planning', 'building', 'paused'].includes(s.phase);
-  $('#cost').textContent = s.costUsd ? `누적 $${s.costUsd.toFixed(2)}` : '';
+  $('#cost').textContent = s.costUsd ? `사용량(API 환산) $${s.costUsd.toFixed(2)}` : '';
+  $('#cost').title = '구독 계정으로 실행하면 실제로 청구되지 않습니다. 같은 작업을 API로 했다면 얼마였을지 보여 주는 참고값으로, 사용량 한도를 가늠할 때 씁니다.';
   const real = SNAP.meta.engine === 'claude';
   $('#engineBtn').textContent = real ? '엔진: 실제 개발(Claude)' : '엔진: 시연(mock)';
   $('#engineBtn').classList.toggle('warn', !real); $('#engineBtn').dataset.engine = real ? 'mock' : 'claude';
