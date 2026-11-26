@@ -7,7 +7,8 @@ export const FLOORS = [
 ];
 
 export const ROLES = {
-  ceo: { name: '대표(당신)', short: '대표', floor: 1, color: '#f59e0b' },
+  // 사람(대표) 이름: 환경변수 MWA_OWNER 로 바꿀 수 있습니다.
+  ceo: { name: `${process.env.MWA_OWNER ?? 'mochiz'} 대표`, short: process.env.MWA_OWNER ?? 'mochiz', floor: 1, color: '#f59e0b' },
   analyst: { name: '비즈니스 분석가', short: '분석', floor: 2, color: '#14b8a6', prompt: 'analyst.md' },
   pm: { name: '프로덕트 매니저', short: 'PM', floor: 2, color: '#0ea5e9', prompt: 'pm.md' },
   ux: { name: 'UX 디자이너', short: 'UX', floor: 2, color: '#a855f7', prompt: 'ux.md' },

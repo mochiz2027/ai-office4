@@ -343,7 +343,7 @@ export function create3D(container, meta, { onFloor, onExit } = {}) {
     for (const fl of meta.floors) {
       const F = floors[fl.floor];
       const working = act.role && act.floor === fl.floor;
-      const chip = working ? ['작업 중', FLOOR_COLORS[fl.floor]] : fl.floor === 1 && !setupOk ? ['설치 점검 필요', '#ef4444'] : fl.floor === 1 && ceoTurn ? ['대표 차례', '#ef4444'] : null;
+      const chip = working ? ['작업 중', FLOOR_COLORS[fl.floor]] : fl.floor === 1 && !setupOk ? ['설치 점검 필요', '#ef4444'] : fl.floor === 1 && ceoTurn ? [`${meta.roles.ceo.name} 차례`, '#ef4444'] : null;
       F.label.classList.toggle('on', selectedFloor === fl.floor);
       F.label.innerHTML = `<b style="background:${FLOOR_COLORS[fl.floor]}">${fl.floor}F</b><div><strong>${esc(fl.name)}</strong><small>${esc(fl.desc)}</small>${chip ? `<em style="--c:${chip[1]}">${chip[0]}</em>` : ''}</div>`;
 
@@ -366,7 +366,7 @@ export function create3D(container, meta, { onFloor, onExit } = {}) {
         const active = r === 'ceo' ? ceoTurn : act.role === r;
         p.active = active;
         p.bubble.element.classList.toggle('off', !active);
-        p.bubble.element.textContent = r === 'ceo' ? '대표 차례입니다' : act.label ?? '';
+        p.bubble.element.textContent = r === 'ceo' ? `${meta.roles.ceo.name} 차례입니다` : act.label ?? '';
         p.sp.material.opacity = !active && act.role && act.floor === fl.floor ? 0.6 : 1;
         p.sp.material.transparent = true;
         (F.monitors?.[r] ?? []).forEach((m) => { m.material = mat('#1f2937', { emissive: active ? '#38bdf8' : '#38bdf8', emissiveIntensity: active ? 0.9 : 0.05 }); });

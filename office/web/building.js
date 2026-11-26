@@ -274,7 +274,7 @@ export function renderDynamic(svg, meta, state, selectedFloor, setupOk = true) {
       const active = r === 'ceo' ? ceoTurn : act.role === r;
       its.push(person(x - 0.15, ROWY - 0.35, z + 0.4, role, { key: r, active, dim: !active && act.role && act.floor === f.floor }));
       if (active) {
-        const label = r === 'ceo' ? '대표 차례입니다' : act.label ?? '';
+        const label = r === 'ceo' ? `${meta.roles.ceo.name} 차례입니다` : act.label ?? '';
         const [bx, by] = P(x - 0.15, ROWY - 0.35, z + 0.4);
         const w = Math.min(240, 24 + label.length * 11.5);
         bubbles += (`<g class="bubble" transform="translate(${(bx - w / 2).toFixed(1)},${(by - 104).toFixed(1)})"><rect width="${w}" height="28" rx="14" filter="url(#soft)"/><path d="M${w / 2 - 6},27 l6,8 l6,-8z"/><text x="${w / 2}" y="18.5">${esc(label)}</text></g>`);
@@ -285,7 +285,7 @@ export function renderDynamic(svg, meta, state, selectedFloor, setupOk = true) {
 
     // 층 라벨 카드
     const working = act.role && act.floor === f.floor;
-    const chip = working ? ['작업 중', FLOOR_COLORS[f.floor]] : f.floor === 1 && !setupOk ? ['설치 점검 필요', '#ef4444'] : f.floor === 1 && ceoTurn ? ['대표 차례', '#ef4444'] : null;
+    const chip = working ? ['작업 중', FLOOR_COLORS[f.floor]] : f.floor === 1 && !setupOk ? ['설치 점검 필요', '#ef4444'] : f.floor === 1 && ceoTurn ? [`${meta.roles.ceo.name} 차례`, '#ef4444'] : null;
     const [lx, ly] = P(0, D, z + H * 0.45);
     labels += `<g class="flabel ${selectedFloor === f.floor ? 'on' : ''}" data-floor="${f.floor}" transform="translate(${(lx - 276).toFixed(1)},${(ly - 30).toFixed(1)})">
       <rect width="246" height="${chip ? 66 : 50}" rx="12" filter="url(#soft)"/>

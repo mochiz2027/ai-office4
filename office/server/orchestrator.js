@@ -480,12 +480,12 @@ export class Orchestrator {
   async #answerChat(floor, role, text, route) {
     const s = this.s, R = ROLES[role], afterPlan = route === 'AFTER_PLAN';
     const conv = s.messages.filter((m) => m.floor === floor).slice(-13, -1)
-      .map((m) => `- ${m.from === 'ceo' ? '대표' : ROLES[m.from]?.name ?? m.from}: ${m.text.slice(0, 800)}`).join('\n');
+      .map((m) => `- ${m.from === 'ceo' ? ROLES.ceo.name : ROLES[m.from]?.name ?? m.from}: ${m.text.slice(0, 800)}`).join('\n');
     const stages = s.stages.map((x) => `${stageById(x.id)?.title ?? x.id}=${x.status}`).join(', ');
     const tickets = s.epics.flatMap((e) => e.tickets.map((t) => `${t.id} ${t.title} (${t.status})`)).slice(-15).join('\n');
     const docs = s.stages.filter((x) => x.status === 'done').map((x) => `- ${x.doc}`).join('\n');
     const prompt = [
-      `당신은 "MWA 바이브코딩 사무실" ${floor}F의 ${R.name}입니다. 지금 대표(사람)와 채팅으로 대화하고 있습니다.`,
+      `당신은 "MWA 바이브코딩 사무실" ${floor}F의 ${R.name}입니다. 지금 ${ROLES.ceo.name}(사람)과 채팅으로 대화하고 있습니다. 상대를 "${ROLES.ceo.name}님"이라고 부릅니다.`,
       this.#persona(role) && `## 당신의 페르소나 (대표 지정)\n${this.#persona(role)}`,
       '## 답변 규칙',
       '- 한국어 존댓말로, 대표에게 직접 말하듯 답합니다. 핵심을 먼저 말하고 길이는 3~12줄 정도로 합니다.',
@@ -541,7 +541,7 @@ export class Orchestrator {
     const contract = fs.readFileSync(path.join(AGENTS_DIR, '_contract.md'), 'utf8');
     const decisions = s.questions.filter((q) => q.answer).map((q) => `- ${q.q} → **${q.answer}**${q.status === 'auto' ? ' (자동: 추천안)' : ''}`).join('\n');
     const rejected = s.assumptions.filter((a) => a.rejected).map((a) => `- (틀린 가정) ${a.text}`).join('\n');
-    const msgs = s.messages.slice(-12).map((m) => `- [${m.floor}F ${m.from === 'ceo' || !m.from ? '대표' : ROLES[m.from]?.name ?? m.from}] ${m.text.slice(0, 600)}`).join('\n');
+    const msgs = s.messages.slice(-12).map((m) => `- [${m.floor}F ${m.from === 'ceo' || !m.from ? ROLES.ceo.name : ROLES[m.from]?.name ?? m.from}] ${m.text.slice(0, 600)}`).join('\n');
     const docs = s.stages.filter((x) => x.status === 'done').map((x) => `- ${x.doc}`).join('\n');
     return [
       rolePrompt, persona && `## 이 프로젝트에서 당신의 페르소나 (대표 지정)\n${persona}`, contract,
@@ -610,7 +610,7 @@ export class Orchestrator {
   }
 
   #setActivity(a) {
-    this.store.update((s) => { s.activity = a ?? { floor: 1, role: null, label: this.isBlocked() ? '대표 차례' : '대기 중', ticket: null }; });
+    this.store.update((s) => { s.activity = a ?? { floor: 1, role: null, label: this.isBlocked() ? `${ROLES.ceo.name} 차례` : '대기 중', ticket: null }; });
   }
 }
 

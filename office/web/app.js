@@ -129,7 +129,7 @@ function renderTop() {
   const s = SNAP.state, l = SNAP.ledger;
   const act = s.activity?.role ? `${s.activity.floor}F ${META.roles[s.activity.role]?.name}: ${s.activity.label}` : s.activity?.label;
   const hint = s.phase === 'idle' ? '아직 빌드 전입니다 — 2F 기획실에 만들고 싶은 것을 한 단락 써 주세요.' : act;
-  $('#status').textContent = `● ${PHASE[s.phase] ?? s.phase} · ${hint ?? ''}${l.counts.humanTurns ? ` · 대표 차례 ${l.counts.humanTurns}건` : ''}`;
+  $('#status').textContent = `● ${PHASE[s.phase] ?? s.phase} · ${hint ?? ''}${l.counts.humanTurns ? ` · ${META.roles.ceo.name} 차례 ${l.counts.humanTurns}건` : ''}`;
   document.querySelectorAll('#modeSeg button').forEach((b) => b.classList.toggle('on', b.dataset.mode === s.mode));
   $('#pauseBtn').textContent = s.phase === 'paused' ? '재개' : '일시정지';
   $('#pauseBtn').disabled = !['planning', 'building', 'paused'].includes(s.phase);
@@ -218,7 +218,7 @@ function renderFeed() {
   const items = [
     ...conv.map((m) => {
       const ceo = !m.from || m.from === 'ceo';
-      const who = ceo ? '대표(당신)' : META.roles[m.from]?.name ?? m.from;
+      const who = ceo ? META.roles.ceo.name : META.roles[m.from]?.name ?? m.from;
       return { ts: m.ts, html: ceo ? `<div class="msg ceo"><span class="who">${who}</span>${esc(m.text)}</div>`
         : `<div class="msg staff" style="--c:${META.roles[m.from]?.color ?? '#888'}"><span class="who">${esc(who)}</span><div class="md">${md(m.text)}</div></div>` };
     }),
