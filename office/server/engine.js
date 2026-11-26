@@ -84,7 +84,11 @@ function runClaude({ prompt, toolset, cwd, onLog, signal, model, runFile }) {
       out?.end();
       signal?.removeEventListener('abort', onAbort);
       if (signal?.aborted) return reject(new Error('중단되었습니다'));
-      if (/Not logged in|Please run \/login|Invalid API key/i.test(result || lastText || err)) return reject(new Error('Claude 로그인이 되어 있지 않습니다. WSL 창에서 claude 를 실행해 /login 으로 로그인한 뒤 다시 시도해 주세요.'));
+      const all = `${result}\n${lastText}\n${err}`;
+      // 로그인·사용량 한도 문구는 정상 답변처럼 보이지만 실제로는 일을 못 한 것이므로 오류로 돌립니다.
+      if (/Not logged in|Please run \/login|Invalid API key|Invalid bearer token|Failed to authenticate/i.test(all)) return reject(Object.assign(new Error('Claude 로그인이 되어 있지 않습니다. WSL 창에서 claude 를 실행해 /login 으로 로그인한 뒤 다시 시도해 주세요.'), { code: 'AUTH' }));
+      const lim = all.match(/(?:You've hit your|hit your|reached your)[^\n]*limit[^\n]*|usage limit[^\n]*/i);
+      if (lim) return reject(Object.assign(new Error(`Claude 사용량 한도에 도달했습니다. (${lim[0].trim().slice(0, 120)})`), { code: 'LIMIT' }));
       if (code !== 0 && !result) return reject(new Error(`claude 종료 코드 ${code}: ${err.slice(-500)}`));
       resolve({ text: result || lastText, cost, contract: parseContract(result || lastText) });
     });
@@ -104,6 +108,7 @@ const sleep = (ms, signal) => new Promise((res, rej) => {
 });
 
 async function runMock({ cwd, onLog, signal, mock = {}, prompt, runFile }) {
+  if (process.env.MWA_MOCK_FAIL === 'LIMIT') throw Object.assign(new Error('Claude 사용량 한도에 도달했습니다. (시험)'), { code: 'LIMIT' });
   if (runFile && prompt) fs.writeFileSync(runFile, JSON.stringify({ type: 'mock-prompt', prompt }) + '\n'); // 시연 엔진도 받은 지시문을 남깁니다
   const delay = Number(process.env.MWA_MOCK_DELAY ?? 600);
   onLog(`(mock) ${mock.title ?? '작업'} 시작`);

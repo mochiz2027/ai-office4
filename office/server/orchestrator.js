@@ -289,6 +289,7 @@ export class Orchestrator {
     if (!epic) {
       this.store.update((x) => { x.phase = 'done'; });
       this.log('모든 에픽을 마쳤습니다. 🎉', { floor: 1 });
+      this.#reportDone();
       return false;
     }
     this.store.update((x) => { x.currentEpic = epic.id; });
@@ -516,11 +517,13 @@ export class Orchestrator {
     }
     if (afterPlan) {
       // 직원 판단이 없으면(오류 등) 질문처럼 보이지 않는 한 작업 지시로 봅니다.
-      const isChange = contract.action ? contract.action === 'change' : !looksLikeQuestion(text);
+      // 직원이 분명히 작업 지시라고 판단한 경우에만 티켓을 만듭니다(판단을 못 받으면 만들지 않음).
+      const isChange = contract.action === 'change';
       if (isChange) {
         const cr = this.#addChangeRequest(floor, text, contract.ticket);
         answer = (answer ? answer + '\n\n' : '') + `**접수:** 변경 요청 ${cr.id}로 티켓을 만들어 개발·테스트·리뷰까지 진행합니다.`;
       } else if (!answer) answer = '질문으로 받았습니다. 티켓은 만들지 않았습니다.';
+      else if (!contract.action) answer += '\n\n(작업 지시로 판단하지 못해 티켓은 만들지 않았습니다. 작업을 원하시면 "~를 추가해 주세요"처럼 구체적으로 다시 보내 주세요.)';
     } else if (!answer) answer = route;
     this.store.update((x) => {
       x.messages.push({ floor, from: role, text: answer, ts: new Date().toISOString() });
@@ -554,15 +557,51 @@ export class Orchestrator {
     ].filter(Boolean).join('\n\n');
   }
 
+  /** 완료 보고: 개발이 끝나면 1F·2F 대화 기록에 결과와 확인 방법을 남깁니다(추가 비용 없음). */
+  #reportDone() {
+    const s = this.s, ts = s.epics.flatMap((e) => e.tickets);
+    const done = ts.filter((t) => t.status === 'done').length, skipped = ts.filter((t) => t.status === 'skipped').length;
+    const has = (f) => fs.existsSync(path.join(this.cwd, f));
+    const run = has('index.html') ? '`explorer.exe index.html` (WSL) 또는 index.html 을 브라우저로 엽니다.' : has('README.md') ? 'README.md 의 실행 방법을 따릅니다.' : '[확인필요] 실행 방법 문서가 없습니다.';
+    const text = [
+      `${ROLES.ceo.name}님, **개발이 끝났습니다.**`,
+      `- 에픽 ${s.epics.length}개, 티켓 ${done}/${ts.length}개 완료${skipped ? ` (건너뜀 ${skipped}개)` : ''}`,
+      `- 자동 테스트: \`${s.testCommand || '(테스트 명령 없음)'}\` 통과`,
+      `- 누적 비용(API 환산): $${(s.costUsd ?? 0).toFixed(2)}`,
+      '',
+      '**확인 방법**',
+      `1. 프로젝트 폴더: \`${this.cwd}\``,
+      `2. 실행: ${run}`,
+      `3. 테스트 직접 실행: \`${s.testCommand || 'README 참고'}\``,
+      '4. 상단 "프로젝트 지도"에서 구역별 완료 현황을 봅니다.',
+      '',
+      '고칠 점이 있으면 "~를 추가해 주세요"처럼 보내 주시면 새 티켓으로 이어서 작업합니다.',
+    ].join('\n');
+    this.store.update((x) => { for (const floor of [1, 2]) x.messages.push({ floor, from: 'pm', text, ts: new Date().toISOString() }); });
+  }
+
+  /** 사용량 한도·로그인 문제: 작업을 실패로 세지 않고 일시정지한 뒤 대표에게 알립니다. */
+  #haltFor(e) {
+    if (['planning', 'building'].includes(this.s.phase)) this.store.update((s) => { s.resumePhase = s.phase; s.phase = 'paused'; });
+    const tip = e.code === 'LIMIT' ? '한도가 풀리는 시각 이후에 화면 위쪽 [재개] 버튼을 누르면 멈춘 작업부터 다시 합니다.' : '로그인한 뒤 화면 위쪽 [재개] 버튼을 누르세요.';
+    this.log(`⏸ ${e.message} ${tip}`, { floor: 1, level: 'error' });
+  }
+
   async #agent(role, toolset, prompt, mock) {
     this.abort = new AbortController();
     const runFile = path.join(this.store.dir, 'runs', `${Date.now()}-${role}.jsonl`);
     const floor = ROLES[role].floor;
-    const r = await runAgent({
-      engine: this.engine, model: this.model || this.loop.models[toolset === 'review' ? 'review' : toolset] || undefined, prompt, toolset, cwd: this.cwd, runFile,
-      signal: this.abort.signal, mock: { ...mock, idea: this.s.idea },
-      onLog: (line) => this.log(line, { floor, role, agent: true }),
-    });
+    let r;
+    try {
+      r = await runAgent({
+        engine: this.engine, model: this.model || this.loop.models[toolset === 'review' ? 'review' : toolset] || undefined, prompt, toolset, cwd: this.cwd, runFile,
+        signal: this.abort.signal, mock: { ...mock, idea: this.s.idea },
+        onLog: (line) => this.log(line, { floor, role, agent: true }),
+      });
+    } catch (e) {
+      if (e.code === 'LIMIT' || e.code === 'AUTH') this.#haltFor(e); // 실패로 세지 않고 일시정지합니다.
+      throw e;
+    }
     if (r.cost) this.store.update((s) => { s.costUsd = (s.costUsd ?? 0) + r.cost; });
     return r;
   }

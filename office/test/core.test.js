@@ -103,6 +103,21 @@ test('페르소나: .bmad-loop/personas/dev.md 가 개발자 지시문에 들어
   assert.match(fs.readFileSync(path.join(dir, '.mwa/runs', runs[0]), 'utf8'), /ZETA/);
 });
 
+test('사용량 한도: 실패로 세지 않고 일시정지, 재개하면 이어서 완료하고 완료 보고를 남긴다', async () => {
+  process.env.MWA_MOCK_DELAY = '10';
+  const dir = tmp();
+  const store = new Store(dir);
+  const orch = new Orchestrator(store, { engine: 'mock' });
+  process.env.MWA_MOCK_FAIL = 'LIMIT';
+  orch.postMessage(2, '아이디어');
+  await until(() => store.state.phase === 'paused');
+  assert.ok(store.state.stages.every((x) => x.status === 'todo'), '단계가 실패로 남지 않는다');
+  delete process.env.MWA_MOCK_FAIL;
+  orch.resume();
+  await until(() => store.state.phase === 'done', 30000);
+  assert.ok(store.state.messages.some((m) => m.floor === 1 && m.from === 'pm' && m.text.includes('개발이 끝났습니다')));
+});
+
 test('scaffold: 스타터 골격을 만들고 기존 파일은 덮어쓰지 않는다', async () => {
   const { scaffold } = await import('../server/scaffold.js');
   const dir = tmp();
