@@ -486,6 +486,7 @@ export class Orchestrator {
     const docs = s.stages.filter((x) => x.status === 'done').map((x) => `- ${x.doc}`).join('\n');
     const prompt = [
       `당신은 "MWA 바이브코딩 사무실" ${floor}F의 ${R.name}입니다. 지금 대표(사람)와 채팅으로 대화하고 있습니다.`,
+      this.#persona(role) && `## 당신의 페르소나 (대표 지정)\n${this.#persona(role)}`,
       '## 답변 규칙',
       '- 한국어 존댓말로, 대표에게 직접 말하듯 답합니다. 핵심을 먼저 말하고 길이는 3~12줄 정도로 합니다.',
       '- 필요하면 프로젝트 파일과 기획 문서를 읽어 근거를 확인합니다. 파일은 절대 수정하지 않습니다(작업은 사무실 진행기가 따로 합니다).',
@@ -526,17 +527,23 @@ export class Orchestrator {
     });
   }
 
+  /** 프로젝트별 페르소나: .bmad-loop/personas/<역할>.md (대표가 직접 고치는 파일, 에이전트는 수정 불가) */
+  #persona(role) {
+    try { return fs.readFileSync(path.join(this.cwd, '.bmad-loop', 'personas', `${role}.md`), 'utf8').trim(); } catch { return ''; }
+  }
+
   // ---------- 공용 ----------
   #prompt(role, parts) {
     const s = this.s;
     const rolePrompt = fs.readFileSync(path.join(AGENTS_DIR, ROLES[role].prompt), 'utf8');
+    const persona = this.#persona(role);
     const contract = fs.readFileSync(path.join(AGENTS_DIR, '_contract.md'), 'utf8');
     const decisions = s.questions.filter((q) => q.answer).map((q) => `- ${q.q} → **${q.answer}**${q.status === 'auto' ? ' (자동: 추천안)' : ''}`).join('\n');
     const rejected = s.assumptions.filter((a) => a.rejected).map((a) => `- (틀린 가정) ${a.text}`).join('\n');
     const msgs = s.messages.slice(-12).map((m) => `- [${m.floor}F ${m.from === 'ceo' || !m.from ? '대표' : ROLES[m.from]?.name ?? m.from}] ${m.text.slice(0, 600)}`).join('\n');
     const docs = s.stages.filter((x) => x.status === 'done').map((x) => `- ${x.doc}`).join('\n');
     return [
-      rolePrompt, contract,
+      rolePrompt, persona && `## 이 프로젝트에서 당신의 페르소나 (대표 지정)\n${persona}`, contract,
       `## 프로젝트 아이디어 (대표 원문)\n${s.idea}`,
       decisions && `## 지금까지 확정된 결정\n${decisions}`,
       rejected && `## 대표가 틀렸다고 표시한 가정\n${rejected}`,

@@ -102,7 +102,8 @@ const sleep = (ms, signal) => new Promise((res, rej) => {
   signal?.addEventListener('abort', () => { clearTimeout(t); rej(new Error('중단되었습니다')); }, { once: true });
 });
 
-async function runMock({ cwd, onLog, signal, mock = {} }) {
+async function runMock({ cwd, onLog, signal, mock = {}, prompt, runFile }) {
+  if (runFile && prompt) fs.writeFileSync(runFile, JSON.stringify({ type: 'mock-prompt', prompt }) + '\n'); // 시연 엔진도 받은 지시문을 남깁니다
   const delay = Number(process.env.MWA_MOCK_DELAY ?? 600);
   onLog(`(mock) ${mock.title ?? '작업'} 시작`);
   await sleep(delay, signal);

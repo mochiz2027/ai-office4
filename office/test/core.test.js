@@ -87,6 +87,22 @@ test('대화: 메시지를 보내면 담당 직원 답변이 대화 기록에 �
   orch.pause();
 });
 
+test('페르소나: .bmad-loop/personas/dev.md 가 개발자 지시문에 들어간다', async () => {
+  const { scaffold } = await import('../server/scaffold.js');
+  process.env.MWA_MOCK_DELAY = '10';
+  const dir = tmp();
+  scaffold(dir, { starter: null, version: 't' });
+  assert.ok(fs.existsSync(path.join(dir, '.bmad-loop/personas/dev.md')), '기본 개발자 페르소나가 생긴다');
+  fs.writeFileSync(path.join(dir, '.bmad-loop/personas/dev.md'), '나는 테스트용 페르소나 ZETA 입니다.');
+  const store = new Store(dir);
+  const orch = new Orchestrator(store, { engine: 'mock' });
+  orch.postMessage(4, '안녕하세요');
+  await until(() => store.state.messages.some((m) => m.from === 'dev'));
+  orch.pause();
+  const runs = fs.readdirSync(path.join(dir, '.mwa/runs')).filter((f) => f.includes('chat-dev'));
+  assert.match(fs.readFileSync(path.join(dir, '.mwa/runs', runs[0]), 'utf8'), /ZETA/);
+});
+
 test('scaffold: 스타터 골격을 만들고 기존 파일은 덮어쓰지 않는다', async () => {
   const { scaffold } = await import('../server/scaffold.js');
   const dir = tmp();

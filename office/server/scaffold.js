@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { ROLES } from './roles.js';
 
 const OFFICE = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
+const AGENTS_SRC = path.join(OFFICE, 'agents');
 export const STARTERS = fs.existsSync(path.join(OFFICE, 'starters')) ? fs.readdirSync(path.join(OFFICE, 'starters')) : [];
 export const OUT = { planning: '_bmad-output/planning-artifacts', impl: '_bmad-output/implementation-artifacts' };
 
@@ -29,7 +30,7 @@ const RULES = `# 프로젝트 규칙 (MWA 사무실)
 const LOOP = {
   maxAttempts: 3,
   testTimeoutMin: 10,
-  models: { plan: '', dev: '', review: '' },
+  models: { plan: '', dev: '', review: '', chat: '' },
   note: '빈 값이면 claude 기본 모델을 씁니다. 예: "sonnet", "opus"',
 };
 
@@ -92,7 +93,9 @@ export function scaffold(dir, { starter = null, version = '0' } = {}) {
   put(`${OUT.impl}/.gitkeep`, '');
   put('_bmad-output/README.md', `# _bmad-output\n\nBMAD 단계별 산출물이 쌓이는 폴더입니다.\n\n- planning-artifacts/: 아이디어·브리프·PRD·UX·아키텍처·티켓·점검 문서\n- implementation-artifacts/: 에픽 다듬기 메모와 회고\n`);
   put('.bmad-loop/loop.json', LOOP);
-  put('.bmad-loop/README.md', '# .bmad-loop\n\n진행기(기획 → 에픽 다듬기 → 빌드 → 에픽 마무리 → 다음 에픽) 루프 설정입니다.\n\n- `loop.json`: 티켓당 최대 시도 횟수, 테스트 제한 시간(분), 단계별 모델\n');
+  // 역할별 페르소나(대표가 고치는 파일). 기본으로 개발자 페르소나를 넣습니다.
+  for (const f of fs.readdirSync(path.join(AGENTS_SRC, 'personas'))) put(`.bmad-loop/personas/${f}`, fs.readFileSync(path.join(AGENTS_SRC, 'personas', f), 'utf8'));
+  put('.bmad-loop/README.md', '# .bmad-loop\n\n진행기(기획 → 에픽 다듬기 → 빌드 → 에픽 마무리 → 다음 에픽) 루프 설정입니다.\n\n- `loop.json`: 티켓당 최대 시도 횟수, 테스트 제한 시간(분), 단계별 모델(models.plan / dev / review / chat, 예: "opus")\n- `personas/<역할>.md`: 역할별 페르소나. 파일이 있으면 그 역할의 지시문에 덧붙습니다. 역할 이름: analyst, pm, ux, architect, po, sm, reviewer, dev\n');
   put('.claude/settings.json', CLAUDE_SETTINGS);
 
   // 역할 프롬프트를 Claude Code 스킬로 설치하고 잠금 파일에 해시를 남깁니다.
