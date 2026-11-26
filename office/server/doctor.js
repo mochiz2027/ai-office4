@@ -37,6 +37,9 @@ export function runChecks(projectDir, { engine = 'claude' } = {}) {
     else add('login', 'Claude 로그인', logged, needClaude, logged ? `로그인됨${method ? ` (${method})` : ''}` : '로그인되어 있지 않습니다', 'claude  → 로그인 후 /exit');
   }
 
+  const tok = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+  if (tok && !tok.startsWith('sk-ant-')) add('token', '로그인 토큰 형식', false, needClaude, `CLAUDE_CODE_OAUTH_TOKEN 값이 sk-ant- 로 시작하지 않습니다(승인 코드를 넣은 것 같습니다). 이 값 때문에 401 오류가 납니다.`, "unset CLAUDE_CODE_OAUTH_TOKEN; sed -i '/CLAUDE_CODE_OAUTH_TOKEN/d' ~/.bashrc");
+
   const wsl = os.release().toLowerCase().includes('microsoft');
   add('os', '실행 환경', process.platform !== 'win32', false, process.platform === 'win32' ? 'Windows 직접 실행 — WSL 권장' : wsl ? 'WSL' : process.platform, 'wsl --install');
   add('apikey', 'API 키', true, false, process.env.ANTHROPIC_API_KEY ? '설정됨 — API 요금으로 과금됩니다' : '없음 — 구독 로그인으로 실행합니다');
