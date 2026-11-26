@@ -511,7 +511,8 @@ export class Orchestrator {
       contract = r.contract ?? {};
       answer = String(r.text ?? '').replace(/```json[\s\S]*?```\s*$/, '').trim();
     } catch (e) {
-      answer = `답변을 만들지 못했습니다(${e.message.slice(0, 120)}).`;
+      answer = `⚠️ 답변을 만들지 못했습니다. ${e.message.slice(0, 200)}`;
+      contract = { action: 'none' }; // 오류일 때는 티켓을 만들지 않습니다
     }
     if (afterPlan) {
       // 직원 판단이 없으면(오류 등) 질문처럼 보이지 않는 한 작업 지시로 봅니다.

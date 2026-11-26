@@ -84,6 +84,7 @@ function runClaude({ prompt, toolset, cwd, onLog, signal, model, runFile }) {
       out?.end();
       signal?.removeEventListener('abort', onAbort);
       if (signal?.aborted) return reject(new Error('중단되었습니다'));
+      if (/Not logged in|Please run \/login|Invalid API key/i.test(result || lastText || err)) return reject(new Error('Claude 로그인이 되어 있지 않습니다. WSL 창에서 claude 를 실행해 /login 으로 로그인한 뒤 다시 시도해 주세요.'));
       if (code !== 0 && !result) return reject(new Error(`claude 종료 코드 ${code}: ${err.slice(-500)}`));
       resolve({ text: result || lastText, cost, contract: parseContract(result || lastText) });
     });
